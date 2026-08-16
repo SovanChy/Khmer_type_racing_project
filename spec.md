@@ -34,8 +34,13 @@ one. Implement segmentation directly:
 const BASE  = '[\u1780-\u17A2\u17A5-\u17B3]';   // consonants + independent vowels
 const COENG = `(?:\u17D2${BASE})`;               // ្ + subscript consonant
 const SIGN  = '[\u17B6-\u17D1\u17D3\u17DD]';     // dependent vowels + diacritics
-const CLUSTER = new RegExp(`${BASE}${COENG}*${SIGN}*|.`, 'gu');
+const CLUSTER = new RegExp(`${BASE}${COENG}*${SIGN}*|.`, 'gus');
 ```
+
+The `s` (dotAll) flag is required, not optional. Without it `.` does not match
+line terminators and `matchAll` skips them silently, so newlines vanish from the
+output — `segment(t).join('') !== t` — and every codepoint→cluster index after a
+newline is off by one.
 
 Deliver in `src/khmer/`:
 

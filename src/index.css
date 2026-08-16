@@ -1,1 +1,10 @@
 @import 'tailwindcss';
+
+/* Self-hosted and bundled. Never rely on the user's system Khmer font —
+   stacked glyph rendering varies wildly by device, and a missing font makes
+   correct output look wrong. */
+@import '@fontsource-variable/noto-sans-khmer';
+
+@theme {
+  --font-khmer: 'Noto Sans Khmer Variable', sans-serif;
+}

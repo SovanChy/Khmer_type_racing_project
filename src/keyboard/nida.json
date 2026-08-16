@@ -1,0 +1,27 @@
+{
+  "verified": false,
+
+  "TODO": [
+    "EVERY MAPPING IN THIS FILE IS A PLACEHOLDER. NONE OF IT IS THE NiDA LAYOUT.",
+    "The values below are deliberately sequential (U+1780, U+1781, U+1782, ...)",
+    "so that they are obviously synthetic and cannot be mistaken for real data.",
+    "They exist only to pin the file's SHAPE and to give the validation test",
+    "something to run against.",
+    "",
+    "Replace the whole `keys` object with the verified table from the official",
+    "NiDA layout, then set `verified` to true. While `verified` is false the app",
+    "shows a blocking warning in remap mode.",
+    "",
+    "Keys are KeyboardEvent.code values (physical position, layout-independent).",
+    "Each layer holds exactly one codepoint, or null if that layer is unmapped.",
+    "Expect roughly 50 entries: 26 letters, 10 digits, and the punctuation keys."
+  ],
+
+  "keys": {
+    "KeyQ": { "base": "\u1780", "shift": "\u1781", "altgr": null },
+    "KeyA": { "base": "\u1782", "shift": "\u1783", "altgr": "\u1784" },
+    "KeyZ": { "base": "\u1785", "shift": "\u1786", "altgr": null },
+    "Digit1": { "base": "\u1787", "shift": "\u1788", "altgr": null },
+    "Semicolon": { "base": "\u1789", "shift": "\u178A", "altgr": null }
+  }
+}
