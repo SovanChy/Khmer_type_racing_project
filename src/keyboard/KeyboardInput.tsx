@@ -32,8 +32,8 @@ export function KeyboardInput({ onAction, children }: Props) {
   return (
     <div
       onClick={() => input.current?.focus()}
-      className={`rounded-lg border p-6 transition-colors ${
-        focused ? 'border-sky-500 bg-neutral-900' : 'border-neutral-800 bg-neutral-900/50'
+      className={`cursor-text rounded-lg border p-6 transition-colors ${
+        focused ? 'border-caret bg-surface' : 'border-border bg-surface/50'
       }`}
     >
       <input
@@ -52,7 +52,7 @@ export function KeyboardInput({ onAction, children }: Props) {
       />
       {children}
       {!focused && (
-        <p className="mt-4 text-sm text-neutral-500">Click here, or Tab to it, to start typing.</p>
+        <p className="text-muted mt-4 text-sm">Click here, or Tab to it, to start typing.</p>
       )}
     </div>
   );

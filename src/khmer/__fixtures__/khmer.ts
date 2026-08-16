@@ -59,6 +59,12 @@ export const LANGUAGE = CP.PHO + CP.SRA_AA + CP.SA + CP.SRA_AA;
 /** ភាសា​ខ្មែរ "Khmer language", with the ZWSP word separator real corpora carry. */
 export const LANGUAGE_ZWSP_KHMER = LANGUAGE + CP.ZWSP + KHMER;
 
+/** Three ZWSP-separated words — the shape corpus text actually arrives in. */
+export const PASSAGE_ZWSP = LANGUAGE + CP.ZWSP + KHMER + CP.ZWSP + SREY;
+
+/** A real space between words. Unlike ZWSP, the user has to type this one. */
+export const PASSAGE_SPACED = LANGUAGE + ' ' + KHMER;
+
 /**
  * ស្រី typed with the vowel before the coeng sequence: ស ី ្ រ.
  * Renders near-identically for some fonts but is a different codepoint

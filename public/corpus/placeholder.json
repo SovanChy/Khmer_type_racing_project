@@ -1,0 +1,40 @@
+{
+  "verified": false,
+
+  "NOTE": [
+    "PLACEHOLDER TEXT. The Khmer below is unverified and meant to be replaced.",
+    "It is short, high-frequency vocabulary chosen to exercise the engine, not a",
+    "curated corpus. Replace `entries` wholesale, then set `verified` to true.",
+    "",
+    "Word boundaries are marked with \u200B (ZERO WIDTH SPACE), written as an",
+    "escape so the separator is visible in a diff -- it is invisible as a glyph.",
+    "The Khmer itself is written as glyphs, because that is the form a Khmer",
+    "reader can actually check. Real spaces are typed; \u200B is not.",
+    "",
+    "level is one of: beginner (no coeng), intermediate (some coeng),",
+    "advanced (stacked coeng and complex vowels)."
+  ],
+
+  "entries": [
+    { "id": "p01", "text": "\u200bទឹក\u200bបាយ\u200bសាលា\u200b។", "source": "placeholder", "level": "beginner" },
+    { "id": "p02", "text": "ថ្ងៃ\u200bខែ\u200bឆ្នាំ\u200b។", "source": "placeholder", "level": "beginner" },
+    { "id": "p03", "text": "ផ្ទះ\u200bធំ\u200bនិង\u200bតូច\u200b។", "source": "placeholder", "level": "beginner" },
+    { "id": "p04", "text": "ភាសា\u200bខ្មែរ\u200b។", "source": "placeholder", "level": "beginner" },
+    { "id": "p05", "text": "បង\u200bនិង\u200bប្អូន\u200b។", "source": "placeholder", "level": "beginner" },
+    { "id": "p06", "text": "ឪពុក\u200bម្ដាយ\u200b។", "source": "placeholder", "level": "beginner" },
+    { "id": "p07", "text": "សៀវភៅ\u200bល្អ\u200b។", "source": "placeholder", "level": "intermediate" },
+    { "id": "p08", "text": "គ្រូ\u200bនិង\u200bសិស្ស\u200b។", "source": "placeholder", "level": "intermediate" },
+    { "id": "p09", "text": "ក្មេង\u200bស្រី\u200bនិង\u200bក្មេង\u200bប្រុស\u200b។", "source": "placeholder", "level": "intermediate" },
+    { "id": "p10", "text": "ក្រុង\u200bភ្នំពេញ\u200b។", "source": "placeholder", "level": "advanced" },
+    { "id": "p11", "text": "ប្រទេស\u200bកម្ពុជា\u200b។", "source": "placeholder", "level": "advanced" },
+    { "id": "p12", "text": "សួស្តី\u200bអរគុណ\u200b។", "source": "placeholder", "level": "advanced" },
+    { "id": "p13", "text": "មនុស្ស\u200bល្អ\u200b។", "source": "placeholder", "level": "advanced" },
+    { "id": "p14", "text": "សាលា\u200bរៀន\u200bធំ\u200b។", "source": "placeholder", "level": "beginner" },
+    { "id": "p15", "text": "ទឹក\u200bនិង\u200bភ្លៀង\u200b។", "source": "placeholder", "level": "intermediate" },
+    { "id": "p16", "text": "ខ្មែរ\u200bនិង\u200bភាសា\u200bខ្មែរ\u200b។", "source": "placeholder", "level": "intermediate" },
+    { "id": "p17", "text": "សៀវភៅ\u200bរបស់\u200bគ្រូ\u200b។", "source": "placeholder", "level": "intermediate" },
+    { "id": "p18", "text": "ថ្ងៃ\u200bនេះ\u200bល្អ\u200b។", "source": "placeholder", "level": "intermediate" },
+    { "id": "p19", "text": "ប្រទេស\u200bខ្មែរ\u200bស្អាត\u200b។", "source": "placeholder", "level": "advanced" },
+    { "id": "p20", "text": "សិស្ស\u200bរៀន\u200bភាសា\u200bខ្មែរ\u200b។", "source": "placeholder", "level": "advanced" }
+  ]
+}

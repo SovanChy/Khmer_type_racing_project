@@ -9,31 +9,47 @@
  */
 import type { InputMode } from '../keyboard/nida';
 
+export type Theme = 'light' | 'dark';
+
 export interface Settings {
   inputMode: InputMode;
+  theme: Theme;
 }
 
 const SETTINGS_KEY = 'knt.settings';
 
-export const DEFAULT_SETTINGS: Settings = {
-  // Remap is the default because it needs nothing installed on the machine.
-  inputMode: 'remap',
-};
+/** Dark unless the machine explicitly asks for light — this is a focus tool. */
+function systemTheme(): Theme {
+  const prefersLight =
+    typeof matchMedia === 'function' && matchMedia('(prefers-color-scheme: light)').matches;
+  return prefersLight ? 'light' : 'dark';
+}
+
+export function defaultSettings(): Settings {
+  // Remap is the default input mode because it needs nothing installed.
+  return { inputMode: 'remap', theme: systemTheme() };
+}
 
 export function loadSettings(): Settings {
+  const defaults = defaultSettings();
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
-    if (raw === null) return DEFAULT_SETTINGS;
+    if (raw === null) return defaults;
+
     // localStorage is user-writable, so the parsed value is untrusted input:
-    // validate rather than cast, or a hand-edited key can wedge the app.
-    const parsed: unknown = JSON.parse(raw);
-    const mode = (parsed as Partial<Settings> | null)?.inputMode;
-    return { inputMode: mode === 'os' || mode === 'remap' ? mode : DEFAULT_SETTINGS.inputMode };
+    // validate each field rather than cast, or a hand-edited key wedges the app.
+    const stored = JSON.parse(raw) as Partial<Settings> | null;
+    return {
+      inputMode: stored?.inputMode === 'os' || stored?.inputMode === 'remap'
+        ? stored.inputMode
+        : defaults.inputMode,
+      theme: stored?.theme === 'light' || stored?.theme === 'dark' ? stored.theme : defaults.theme,
+    };
   } catch {
     // Private-window Safari and locked-down browsers throw on access, and a
     // corrupt value throws on parse. Reading a preference must never take the
     // app down.
-    return DEFAULT_SETTINGS;
+    return defaults;
   }
 }
 

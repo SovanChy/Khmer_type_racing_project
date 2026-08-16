@@ -2,9 +2,51 @@
 
 /* Self-hosted and bundled. Never rely on the user's system Khmer font —
    stacked glyph rendering varies wildly by device, and a missing font makes
-   correct output look wrong. */
+   correct output look wrong. A CDN font is not an option either: Phase 6 has
+   to work fully offline. */
 @import '@fontsource-variable/noto-sans-khmer';
 
+/* Bind `dark:` to the class we toggle, not to prefers-color-scheme — otherwise
+   an explicit theme choice loses to the OS setting. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Semantic tokens only. Components never name a raw colour, so the light and
+   dark palettes below are the single place either theme is defined. */
 @theme {
   --font-khmer: 'Noto Sans Khmer Variable', sans-serif;
+
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-fg: var(--fg);
+  --color-muted: var(--muted);
+  --color-error: var(--error);
+  --color-caret: var(--caret);
+  --color-border: var(--border);
+}
+
+:root {
+  color-scheme: light;
+  --bg: #ffffff;
+  --surface: #f8fafc;
+  --fg: #0f172a;
+  --muted: #64748b; /* 4.8:1 on white — untyped text still has to be readable */
+  --error: #dc2626; /* 4.8:1 on white */
+  --caret: #16a34a;
+  --border: rgb(15 23 42 / 0.12);
+}
+
+.dark {
+  color-scheme: dark;
+  --bg: #0f172a;
+  --surface: #1e293b;
+  --fg: #f8fafc;
+  --muted: #94a3b8; /* ~7:1 on the dark background */
+  --error: #f87171; /* #dc2626 is too dark to read on #0f172a */
+  --caret: #22c55e;
+  --border: rgb(248 250 252 / 0.1);
+}
+
+body {
+  background-color: var(--bg);
+  color: var(--fg);
 }
