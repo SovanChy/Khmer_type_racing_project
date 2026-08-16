@@ -5,8 +5,11 @@ import { loadSettings, saveSettings, type Theme } from './storage';
 interface AppState {
   inputMode: InputMode;
   theme: Theme;
+  /** Bumped after every saved run; panels subscribe to know when to re-query. */
+  sessionsSaved: number;
   setInputMode: (mode: InputMode) => void;
   setTheme: (theme: Theme) => void;
+  noteSessionSaved: () => void;
 }
 
 /**
@@ -20,6 +23,7 @@ export const useStore = create<AppState>((set, get) => {
 
   return {
     ...loadSettings(),
+    sessionsSaved: 0,
     setInputMode: (inputMode) => {
       set({ inputMode });
       persist();
@@ -28,5 +32,7 @@ export const useStore = create<AppState>((set, get) => {
       set({ theme });
       persist();
     },
+    // Not persisted: it counts saves in this tab, not sessions on disk.
+    noteSessionSaved: () => set((s) => ({ sessionsSaved: s.sessionsSaved + 1 })),
   };
 });

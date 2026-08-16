@@ -1,5 +1,5 @@
 import { compare, type CharState } from '../khmer/compare';
-import { segment, stripInvisible } from '../khmer/segment';
+import { COENG, segment, stripInvisible } from '../khmer/segment';
 
 /**
  * A "word" is 5 clusters. Khmer has no space-delimited word the way Latin does,
@@ -119,6 +119,34 @@ export function activeWordIndex(starts: number[], caret: number): number {
     if (start !== undefined && start <= caret) active = i;
   }
   return active;
+}
+
+export interface TargetSite {
+  codepoint: string;
+  /** The whole cluster this codepoint belongs to. */
+  cluster: string;
+  /** True when this is the consonant directly after a coeng. */
+  subscript: boolean;
+}
+
+/**
+ * One entry per target codepoint, carrying what the analytics tables need.
+ *
+ * Computed once per passage. Both facts are free here and unrecoverable later:
+ * a stored keystroke row cannot tell you which cluster it belonged to, and
+ * per-cluster accuracy is the statistic that actually matters for Khmer.
+ */
+export function targetSites(target: string): TargetSite[] {
+  const sites: TargetSite[] = [];
+
+  for (const cluster of segment(target)) {
+    const codepoints = [...cluster];
+    codepoints.forEach((codepoint, i) => {
+      sites.push({ codepoint, cluster, subscript: codepoints[i - 1] === COENG });
+    });
+  }
+
+  return sites;
 }
 
 export type WordStatus = 'done' | 'active' | 'pending';

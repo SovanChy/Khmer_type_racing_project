@@ -11,8 +11,11 @@
  * real text.
  */
 
+/** U+17D2 KHMER SIGN COENG. The codepoint directly after it is a subscript. */
+export const COENG = '\u17D2';
+
 const BASE = '[\u1780-\u17A2\u17A5-\u17B3]'; // consonants + independent vowels
-const COENG = `(?:\u17D2${BASE})`; // COENG + subscript consonant
+const COENG_SEQUENCE = `(?:${COENG}${BASE})`; // COENG + subscript consonant
 const SIGN = '[\u17B6-\u17D1\u17D3\u17DD]'; // dependent vowels + diacritics
 
 /**
@@ -21,7 +24,7 @@ const SIGN = '[\u17B6-\u17D1\u17D3\u17DD]'; // dependent vowels + diacritics
  * would vanish, `segment(t).join('') !== t`, and every codepoint-to-cluster
  * index after it would be off by one. `segment.test.ts` pins this.
  */
-const CLUSTER = new RegExp(`${BASE}${COENG}*${SIGN}*|.`, 'gus');
+const CLUSTER = new RegExp(`${BASE}${COENG_SEQUENCE}*${SIGN}*|.`, 'gus');
 
 /** Split text into clusters. Lossless: the result always rejoins to the input. */
 export function segment(text: string): string[] {

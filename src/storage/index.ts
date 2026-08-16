@@ -18,9 +18,14 @@ export {
   onDbStatus,
   recentSessions,
   saveSession,
+  sessionTrend,
+  slowestCodepoints,
+  worstClusters,
+  worstSubscripts,
   type DbStatus,
 } from './db';
 export type { KeystrokeRecord, SessionRecord, StoredSession } from './schema';
+export type { ClusterStat, CodepointStat, SubscriptStat, TrendPoint } from './analytics';
 
 export type Theme = 'light' | 'dark';
 

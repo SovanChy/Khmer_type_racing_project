@@ -1,4 +1,4 @@
-import { stripInvisible } from '../khmer/segment';
+import { segment, stripInvisible } from '../khmer/segment';
 import { toWords } from '../typing/engine';
 
 export const LEVELS = ['beginner', 'intermediate', 'advanced'] as const;
@@ -48,6 +48,47 @@ export async function loadCorpus(
   const response = await fetch(url);
   if (!response.ok) throw new Error(`Could not load corpus ${url}: HTTP ${response.status}`);
   return parseCorpus(await response.json());
+}
+
+/**
+ * How strongly a corpus entry exercises the clusters the user is worst at.
+ *
+ * Counts exact cluster matches rather than substrings: searching for "ក" inside
+ * "ក្ក" would find it twice, when the text contains no bare ក at all.
+ */
+export function drillScore(entry: CorpusEntry, weights: ReadonlyMap<string, number>): number {
+  let score = 0;
+  for (const cluster of segment(entry.text)) score += weights.get(cluster) ?? 0;
+  return score;
+}
+
+/**
+ * A passage biased toward the user's weak clusters.
+ *
+ * Every character still comes from the supplied corpus — nothing is synthesised.
+ * An entry with no weak clusters keeps a baseline weight of 1, so the drill
+ * stays real text rather than collapsing onto the same two sentences, and it
+ * degrades to an ordinary passage when there is no history yet.
+ */
+export function buildDrillPassage(
+  entries: CorpusEntry[],
+  weights: ReadonlyMap<string, number>,
+  wordCount: number,
+  random: () => number = Math.random,
+): string[] {
+  if (entries.length === 0 || wordCount <= 0) return [];
+
+  const weighted = entries.map((entry) => ({ entry, weight: 1 + drillScore(entry, weights) }));
+  const total = weighted.reduce((sum, w) => sum + w.weight, 0);
+
+  const words: string[] = [];
+  while (words.length < wordCount) {
+    let ticket = random() * total;
+    const picked = weighted.find(({ weight }) => (ticket -= weight) < 0) ?? weighted[0];
+    if (picked === undefined || picked.entry.words.length === 0) break;
+    words.push(...picked.entry.words);
+  }
+  return words.slice(0, wordCount);
 }
 
 /** Draw entries at random until we have `wordCount` words, then trim to length. */

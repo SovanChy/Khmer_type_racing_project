@@ -1,5 +1,5 @@
 /**
- * The database contract: schema, statements and record shapes.
+ * The database contract: migrations, statements and record shapes.
  *
  * Kept free of any browser API on purpose. The worker runs these against
  * SQLite-WASM in OPFS; `schema.test.ts` runs the exact same SQL against the
@@ -15,39 +15,69 @@ export const PRAGMAS = `
 PRAGMA foreign_keys = ON;
 `;
 
-export const SCHEMA = `
-CREATE TABLE IF NOT EXISTS sessions (
-  id          INTEGER PRIMARY KEY AUTOINCREMENT,
-  started_at  INTEGER NOT NULL,          -- epoch ms
-  mode        TEXT    NOT NULL,          -- 'time:30' | 'words:50'
-  duration    INTEGER NOT NULL,          -- ms actually elapsed
-  cpm         REAL    NOT NULL,
-  accuracy    REAL    NOT NULL           -- 0..1
-);
+/**
+ * Applied in order; the file's `PRAGMA user_version` records how far it got.
+ *
+ * Append only — never edit a shipped entry, or databases in the wild diverge
+ * from fresh ones with no way to tell.
+ */
+export const MIGRATIONS: readonly string[] = [
+  // v1 — sessions and keystrokes.
+  // IF NOT EXISTS throughout so a database created before migrations existed
+  // (and so reporting user_version 0) passes through this step untouched.
+  `
+  CREATE TABLE IF NOT EXISTS sessions (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    started_at  INTEGER NOT NULL,        -- epoch ms
+    mode        TEXT    NOT NULL,        -- 'time:30' | 'words:50'
+    duration    INTEGER NOT NULL,        -- ms actually elapsed
+    cpm         REAL    NOT NULL,
+    accuracy    REAL    NOT NULL         -- 0..1
+  );
 
-CREATE TABLE IF NOT EXISTS keystrokes (
-  session_id       INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-  target_codepoint TEXT,                 -- NULL when typed past the end of the target
-  typed_codepoint  TEXT    NOT NULL,
-  correct          INTEGER NOT NULL,     -- 0 | 1
-  ms_since_prev    INTEGER NOT NULL
-);
+  CREATE TABLE IF NOT EXISTS keystrokes (
+    session_id       INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    target_codepoint TEXT,               -- NULL when typed past the end of the target
+    typed_codepoint  TEXT    NOT NULL,
+    correct          INTEGER NOT NULL,   -- 0 | 1
+    ms_since_prev    INTEGER NOT NULL
+  );
 
--- Phase 5 ranks per-codepoint accuracy and mean time-to-keystroke; both group
--- by the target codepoint, and 'correct' rides along so the aggregate is
--- answered from the index without touching the table.
-CREATE INDEX IF NOT EXISTS idx_keystrokes_target
-  ON keystrokes(target_codepoint, correct);
+  CREATE INDEX IF NOT EXISTS idx_keystrokes_target
+    ON keystrokes(target_codepoint, correct);
+  CREATE INDEX IF NOT EXISTS idx_keystrokes_session
+    ON keystrokes(session_id);
+  CREATE INDEX IF NOT EXISTS idx_sessions_started_at
+    ON sessions(started_at DESC);
+  `,
 
--- Phase 5 weights mistakes by recency, which means joining keystrokes back to
--- their session.
-CREATE INDEX IF NOT EXISTS idx_keystrokes_session
-  ON keystrokes(session_id);
+  // v2 — cluster attribution for Phase 5.
+  //
+  // Per-codepoint rows cannot answer "which cluster do you get wrong", and a
+  // cluster is not reconstructible from a row in isolation. Both values are
+  // known for free at write time, so they are recorded rather than re-derived.
+  `
+  ALTER TABLE keystrokes ADD COLUMN target_cluster TEXT;
+  ALTER TABLE keystrokes ADD COLUMN subscript INTEGER NOT NULL DEFAULT 0;
 
--- Phase 5 trends the last 30 sessions.
-CREATE INDEX IF NOT EXISTS idx_sessions_started_at
-  ON sessions(started_at DESC);
-`;
+  CREATE INDEX IF NOT EXISTS idx_keystrokes_cluster
+    ON keystrokes(target_cluster, correct);
+  CREATE INDEX IF NOT EXISTS idx_keystrokes_subscript
+    ON keystrokes(subscript, target_codepoint);
+  `,
+];
+
+/**
+ * Migrations this database still owes, newest last. A file from a *newer* build
+ * is left alone rather than downgraded — better to fail a query loudly than to
+ * quietly drop columns someone's data depends on.
+ */
+export function pendingMigrations(userVersion: number): { sql: string; version: number }[] {
+  return MIGRATIONS.slice(Math.max(0, userVersion)).map((sql, i) => ({
+    sql,
+    version: Math.max(0, userVersion) + i + 1,
+  }));
+}
 
 export interface SessionRecord {
   /** Epoch ms, so it survives export/import across machines. */
@@ -66,6 +96,10 @@ export interface StoredSession extends SessionRecord {
 export interface KeystrokeRecord {
   /** NULL when the user typed past the end of the target. */
   targetCodepoint: string | null;
+  /** The whole cluster the target codepoint belongs to. */
+  targetCluster: string | null;
+  /** True when the target codepoint is the consonant directly after a coeng. */
+  subscript: boolean;
   typedCodepoint: string;
   correct: boolean;
   msSincePrev: number;
@@ -79,8 +113,9 @@ RETURNING id
 `;
 
 export const INSERT_KEYSTROKE = `
-INSERT INTO keystrokes (session_id, target_codepoint, typed_codepoint, correct, ms_since_prev)
-VALUES (?, ?, ?, ?, ?)
+INSERT INTO keystrokes
+  (session_id, target_codepoint, target_cluster, subscript, typed_codepoint, correct, ms_since_prev)
+VALUES (?, ?, ?, ?, ?, ?, ?)
 `;
 
 export const RECENT_SESSIONS = `

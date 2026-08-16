@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { NIDA, type InputMode } from './keyboard/nida';
 import { TypingTest } from './typing/TypingTest';
+import { Analytics } from './Analytics';
 import { DataPanel } from './DataPanel';
 import { initDatabase } from './storage';
 import { useStore } from './store';
@@ -103,6 +104,7 @@ export function App() {
       )}
 
       <TypingTest />
+      <Analytics />
       <DataPanel />
     </main>
   );

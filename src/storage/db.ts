@@ -5,6 +5,7 @@ import {
   type StoredSession,
 } from './schema';
 import type { WorkerOp, WorkerRequest, WorkerResponse } from './db.worker';
+import type { ClusterStat, CodepointStat, SubscriptStat, TrendPoint } from './analytics';
 
 export type DbStatus =
   | 'connecting'
@@ -129,6 +130,24 @@ export const recentSessions = (limit = 30): Promise<StoredSession[]> =>
 // carry a SharedArrayBuffer here, and Blob/File APIs reject the wider type.
 export const exportDatabase = (): Promise<Uint8Array<ArrayBuffer>> =>
   call<Uint8Array<ArrayBuffer>>({ op: 'exportDatabase' });
+
+/**
+ * Rarely-seen targets are excluded from every ranking: one miss out of one
+ * attempt is 0% accuracy and would otherwise sit at the top of the list forever.
+ */
+const MIN_ATTEMPTS = 5;
+
+export const worstClusters = (limit = 10, minAttempts = MIN_ATTEMPTS): Promise<ClusterStat[]> =>
+  call<ClusterStat[]>({ op: 'worstClusters', limit, minAttempts });
+
+export const worstSubscripts = (limit = 8, minAttempts = MIN_ATTEMPTS): Promise<SubscriptStat[]> =>
+  call<SubscriptStat[]>({ op: 'worstSubscripts', limit, minAttempts });
+
+export const slowestCodepoints = (limit = 8, minAttempts = MIN_ATTEMPTS): Promise<CodepointStat[]> =>
+  call<CodepointStat[]>({ op: 'slowestCodepoints', limit, minAttempts });
+
+export const sessionTrend = (limit = 30): Promise<TrendPoint[]> =>
+  call<TrendPoint[]>({ op: 'sessionTrend', limit });
 
 export async function importDatabase(bytes: Uint8Array): Promise<void> {
   // Checked before it crosses the boundary: an import replaces the user's whole

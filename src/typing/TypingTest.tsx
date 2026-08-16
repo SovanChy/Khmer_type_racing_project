@@ -1,17 +1,25 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { buildPassage, loadCorpus, type CorpusEntry } from '../corpus';
+import { buildDrillPassage, buildPassage, loadCorpus, type CorpusEntry } from '../corpus';
 import { KeyboardInput } from '../keyboard/KeyboardInput';
 import type { KeyAction } from '../keyboard/nida';
 import {
   countCorrectClusters,
   countCorrectCodepoints,
   score,
+  targetSites,
   wordProps,
   CLUSTERS_PER_WORD,
   type Score,
 } from './engine';
 import { Word, wordRenders } from './Word';
-import { saveSession, type KeystrokeRecord } from '../storage';
+import { saveSession, worstClusters, type KeystrokeRecord } from '../storage';
+import { useStore } from '../store';
+
+/**
+ * How hard drill mode leans on weak clusters, against a baseline weight of 1
+ * per corpus entry. Higher concentrates practice; lower keeps more variety.
+ */
+const DRILL_STRENGTH = 4;
 
 const TIME_PRESETS = [15, 30, 60] as const;
 const WORD_PRESETS = [25, 50, 100] as const;
@@ -45,6 +53,7 @@ const freshStats = (): Stats => ({
 });
 
 export function TypingTest() {
+  const noteSessionSaved = useStore((s) => s.noteSessionSaved);
   const [corpus, setCorpus] = useState<CorpusEntry[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [config, setConfig] = useState<TestConfig>({ kind: 'time', seconds: 30 });
@@ -68,8 +77,15 @@ export function TypingTest() {
   const savedFor = useRef(-1);
   const [saveState, setSaveState] = useState<{ kind: 'saving' | 'saved' | 'error'; message?: string }>();
 
+  const [drill, setDrill] = useState(false);
+
+  // In a ref, not state: refreshing the weights must not rebuild the passage
+  // mid-run or wipe the results screen the user is still reading.
+  const weights = useRef<Map<string, number>>(new Map());
+
   const target = useMemo(() => words.join(''), [words]);
   const targetCps = useMemo(() => [...target], [target]);
+  const sites = useMemo(() => targetSites(target), [target]);
 
   useEffect(() => {
     let cancelled = false;
@@ -88,10 +104,14 @@ export function TypingTest() {
     keystrokes.current = [];
     lastKeyAt.current = 0;
     setSaveState(undefined);
-    setWords(buildPassage(corpus, config.kind === 'words' ? config.count : TIMED_PASSAGE_WORDS));
+
+    const count = config.kind === 'words' ? config.count : TIMED_PASSAGE_WORDS;
+    setWords(
+      drill ? buildDrillPassage(corpus, weights.current, count) : buildPassage(corpus, count),
+    );
     setCaret(0);
     setPhase('idle');
-  }, [corpus, config]);
+  }, [corpus, config, drill]);
 
   // Also fires when the corpus arrives or the config changes, which is exactly
   // when a fresh passage is wanted.
@@ -119,6 +139,20 @@ export function TypingTest() {
     });
   }, [target]);
 
+  // Refreshed after each save so a drill reflects the run just finished.
+  useEffect(() => {
+    worstClusters(20).then(
+      (stats) => {
+        weights.current = new Map(
+          stats.map((s) => [s.cluster, (1 - s.correct / s.attempts) * DRILL_STRENGTH]),
+        );
+      },
+      () => {
+        weights.current = new Map();
+      },
+    );
+  }, [saveState]);
+
   useEffect(() => {
     if (phase !== 'done') return;
     // Exactly one save per run, whatever makes this effect re-run.
@@ -138,7 +172,10 @@ export function TypingTest() {
       },
       keystrokes.current,
     ).then(
-      () => setSaveState({ kind: 'saved' }),
+      () => {
+        setSaveState({ kind: 'saved' });
+        noteSessionSaved(); // tells the analytics panels there is new data
+      },
       (e: unknown) =>
         setSaveState({ kind: 'error', message: e instanceof Error ? e.message : String(e) }),
     );
@@ -163,7 +200,8 @@ export function TypingTest() {
       setPhase('running');
     }
 
-    const wanted = targetCps[buffer.length] ?? null;
+    const site = sites[buffer.length];
+    const wanted = site?.codepoint ?? null;
     const correct = action.cp === wanted;
     const now = performance.now();
 
@@ -172,6 +210,9 @@ export function TypingTest() {
 
     keystrokes.current.push({
       targetCodepoint: wanted,
+      // Recorded now because it cannot be recovered from the stored row later.
+      targetCluster: site?.cluster ?? null,
+      subscript: site?.subscript ?? false,
       typedCodepoint: action.cp,
       correct,
       // Zero on the first keystroke — there is no previous one to measure from.
@@ -205,7 +246,7 @@ export function TypingTest() {
 
   return (
     <section className="space-y-6">
-      <ConfigBar config={config} onChange={setConfig} />
+      <ConfigBar config={config} onChange={setConfig} drill={drill} onDrillChange={setDrill} />
 
       <LiveStats
         phase={phase}
@@ -252,9 +293,13 @@ export function TypingTest() {
 function ConfigBar({
   config,
   onChange,
+  drill,
+  onDrillChange,
 }: {
   config: TestConfig;
   onChange: (config: TestConfig) => void;
+  drill: boolean;
+  onDrillChange: (drill: boolean) => void;
 }) {
   const chip = (selected: boolean) =>
     `cursor-pointer rounded-md px-2.5 py-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-caret ${
@@ -292,6 +337,16 @@ function ConfigBar({
           </button>
         ))}
       </div>
+
+      <button
+        role="switch"
+        aria-checked={drill}
+        onClick={() => onDrillChange(!drill)}
+        title="Draw sentences that are denser in the clusters you get wrong"
+        className={chip(drill)}
+      >
+        drill
+      </button>
     </div>
   );
 }

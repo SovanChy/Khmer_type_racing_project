@@ -5,6 +5,7 @@ import {
   countCorrectClusters,
   countCorrectCodepoints,
   score,
+  targetSites,
   toWords,
   wordProps,
   wordStarts,
@@ -12,6 +13,7 @@ import {
 import { stripInvisible } from '../khmer/segment';
 import {
   CP,
+  COENG_STACK,
   KHMER,
   LANGUAGE,
   PASSAGE_SPACED,
@@ -188,6 +190,44 @@ describe('activeWordIndex', () => {
 
   it('reports no active word when there are no words', () => {
     expect(activeWordIndex([], 0)).toBe(-1);
+  });
+});
+
+describe('targetSites', () => {
+  it('gives one entry per codepoint, not per cluster', () => {
+    expect(targetSites(KHMER)).toHaveLength(5);
+  });
+
+  it('lines up with the codepoints the comparison uses', () => {
+    expect(targetSites(KHMER).map((s) => s.codepoint)).toEqual([...KHMER]);
+  });
+
+  it('attributes every codepoint of a stack to the whole cluster', () => {
+    // ខ ្ ម ែ all belong to ខ្មែ; រ stands alone.
+    expect(targetSites(KHMER).map((s) => s.cluster)).toEqual([
+      CP.KHA + CP.COENG + CP.MO + CP.SRA_AE,
+      CP.KHA + CP.COENG + CP.MO + CP.SRA_AE,
+      CP.KHA + CP.COENG + CP.MO + CP.SRA_AE,
+      CP.KHA + CP.COENG + CP.MO + CP.SRA_AE,
+      CP.RO,
+    ]);
+  });
+
+  it('marks only the consonant directly after a coeng as subscript', () => {
+    // ខ ្ ម ែ រ  ->  only ម is a subscript consonant
+    expect(targetSites(KHMER).map((s) => s.subscript)).toEqual([false, false, true, false, false]);
+  });
+
+  it('marks the subscript in a bare coeng stack', () => {
+    expect(targetSites(COENG_STACK).map((s) => s.subscript)).toEqual([false, false, true]);
+  });
+
+  it('marks nothing as subscript in text with no coeng', () => {
+    expect(targetSites(LANGUAGE).some((s) => s.subscript)).toBe(false);
+  });
+
+  it('handles empty text', () => {
+    expect(targetSites('')).toEqual([]);
   });
 });
 

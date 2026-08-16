@@ -1,4 +1,5 @@
 import sqlite3InitModule, {
+  type BindingSpec,
   type OpfsSAHPoolDatabase,
   type SAHPoolUtil,
   type Sqlite3Static,
@@ -9,10 +10,18 @@ import {
   INSERT_SESSION,
   PRAGMAS,
   RECENT_SESSIONS,
-  SCHEMA,
+  pendingMigrations,
   type KeystrokeRecord,
   type SessionRecord,
 } from './schema';
+import {
+  PAUSE_CUTOFF_MS,
+  RECENCY_HALF_LIFE_MS,
+  SESSION_TREND,
+  SLOWEST_CODEPOINTS,
+  WORST_CLUSTERS,
+  WORST_SUBSCRIPTS,
+} from './analytics';
 
 /**
  * The database lives here and nowhere else.
@@ -26,7 +35,11 @@ export type WorkerOp =
   | { op: 'saveSession'; session: SessionRecord; keystrokes: KeystrokeRecord[] }
   | { op: 'recentSessions'; limit: number }
   | { op: 'exportDatabase' }
-  | { op: 'importDatabase'; bytes: Uint8Array };
+  | { op: 'importDatabase'; bytes: Uint8Array }
+  | { op: 'worstClusters'; limit: number; minAttempts: number }
+  | { op: 'worstSubscripts'; limit: number; minAttempts: number }
+  | { op: 'slowestCodepoints'; limit: number; minAttempts: number }
+  | { op: 'sessionTrend'; limit: number };
 
 export type WorkerRequest = WorkerOp & { id: number };
 
@@ -46,10 +59,31 @@ let sqlite3: Sqlite3Static;
 let pool: SAHPoolUtil;
 let db: OpfsSAHPoolDatabase;
 
+/** Bring the file up to the current schema, one recorded step at a time. */
+function migrate(): void {
+  const [row] = db.exec({
+    sql: 'PRAGMA user_version',
+    rowMode: 'array',
+    returnValue: 'resultRows',
+  });
+  const version = Number(row?.[0] ?? 0);
+
+  for (const step of pendingMigrations(version)) {
+    // Each step lands whole or not at all, so a failure cannot leave the file
+    // half-migrated with a version that claims otherwise.
+    db.transaction(() => {
+      db.exec(step.sql);
+      // PRAGMA takes no bound parameters. `step.version` is a loop index we
+      // generated, never anything from outside.
+      db.exec(`PRAGMA user_version = ${step.version}`);
+    });
+  }
+}
+
 function openDatabase(): void {
   db = new pool.OpfsSAHPoolDb(DB_FILENAME);
   db.exec(PRAGMAS); // per-connection, so it has to be reapplied on every open
-  db.exec(SCHEMA);
+  migrate();
 }
 
 async function connect(): Promise<void> {
@@ -79,7 +113,15 @@ function saveSession(session: SessionRecord, keystrokes: KeystrokeRecord[]): num
     try {
       for (const k of keystrokes) {
         statement
-          .bind([sessionId, k.targetCodepoint, k.typedCodepoint, k.correct ? 1 : 0, k.msSincePrev])
+          .bind([
+            sessionId,
+            k.targetCodepoint,
+            k.targetCluster,
+            k.subscript ? 1 : 0,
+            k.typedCodepoint,
+            k.correct ? 1 : 0,
+            k.msSincePrev,
+          ])
           .step();
         statement.reset();
       }
@@ -103,17 +145,40 @@ async function importDatabase(bytes: Uint8Array): Promise<void> {
   }
 }
 
+const select = (sql: string, bind: BindingSpec): unknown =>
+  db.exec({ sql, bind, rowMode: 'object', returnValue: 'resultRows' });
+
 function handle(request: WorkerRequest): unknown {
   switch (request.op) {
     case 'saveSession':
       return saveSession(request.session, request.keystrokes);
     case 'recentSessions':
-      return db.exec({
-        sql: RECENT_SESSIONS,
-        bind: [request.limit],
-        rowMode: 'object',
-        returnValue: 'resultRows',
+      return select(RECENT_SESSIONS, [request.limit]);
+
+    case 'worstClusters':
+      return select(WORST_CLUSTERS, {
+        $minAttempts: request.minAttempts,
+        $limit: request.limit,
       });
+
+    case 'worstSubscripts':
+      return select(WORST_SUBSCRIPTS, {
+        // Decay is measured from now, so the ranking shifts as mistakes age out.
+        $now: Date.now(),
+        $halfLife: RECENCY_HALF_LIFE_MS,
+        $minAttempts: request.minAttempts,
+        $limit: request.limit,
+      });
+
+    case 'slowestCodepoints':
+      return select(SLOWEST_CODEPOINTS, {
+        $pauseCutoff: PAUSE_CUTOFF_MS,
+        $minAttempts: request.minAttempts,
+        $limit: request.limit,
+      });
+
+    case 'sessionTrend':
+      return select(SESSION_TREND, { $limit: request.limit });
     case 'exportDatabase': {
       // `pointer` goes undefined once a database is closed, which is briefly
       // true mid-import.
