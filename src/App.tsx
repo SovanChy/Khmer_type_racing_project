@@ -1,6 +1,8 @@
 import { useEffect } from 'react';
 import { NIDA, type InputMode } from './keyboard/nida';
 import { TypingTest } from './typing/TypingTest';
+import { DataPanel } from './DataPanel';
+import { initDatabase } from './storage';
 import { useStore } from './store';
 
 const MODES: { value: InputMode; label: string; hint: string }[] = [
@@ -60,6 +62,10 @@ export function App() {
     document.documentElement.classList.toggle('dark', theme === 'dark');
   }, [theme]);
 
+  // Claim the database lock on load rather than on the first save, so a second
+  // tab is told immediately instead of after a run it cannot store.
+  useEffect(() => initDatabase(), []);
+
   const unverified = inputMode === 'remap' && !NIDA.verified;
 
   return (
@@ -97,6 +103,7 @@ export function App() {
       )}
 
       <TypingTest />
+      <DataPanel />
     </main>
   );
 }

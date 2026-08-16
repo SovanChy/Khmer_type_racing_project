@@ -8,8 +8,10 @@ import {
   score,
   wordProps,
   CLUSTERS_PER_WORD,
+  type Score,
 } from './engine';
 import { Word, wordRenders } from './Word';
+import { saveSession, type KeystrokeRecord } from '../storage';
 
 const TIME_PRESETS = [15, 30, 60] as const;
 const WORD_PRESETS = [25, 50, 100] as const;
@@ -27,11 +29,20 @@ interface Stats {
   /** Keypresses that were right when pressed, including ones later erased. */
   correctPresses: number;
   totalPresses: number;
+  /** performance.now() — monotonic, for measuring elapsed time. */
   startedAt: number;
   endedAt: number;
+  /** Date.now() — wall clock, for storing when the run happened. */
+  startedAtEpoch: number;
 }
 
-const freshStats = (): Stats => ({ correctPresses: 0, totalPresses: 0, startedAt: 0, endedAt: 0 });
+const freshStats = (): Stats => ({
+  correctPresses: 0,
+  totalPresses: 0,
+  startedAt: 0,
+  endedAt: 0,
+  startedAtEpoch: 0,
+});
 
 export function TypingTest() {
   const [corpus, setCorpus] = useState<CorpusEntry[] | null>(null);
@@ -48,6 +59,14 @@ export function TypingTest() {
   // costs no render, which is what keeps a keypress off the rest of the passage.
   const typed = useRef<string[]>([]);
   const stats = useRef<Stats>(freshStats());
+
+  // Buffered, never written per keypress: a worker round trip on every
+  // keystroke would be both slow and pointless when the whole run is saved at
+  // the end as one transaction.
+  const keystrokes = useRef<KeystrokeRecord[]>([]);
+  const lastKeyAt = useRef(0);
+  const savedFor = useRef(-1);
+  const [saveState, setSaveState] = useState<{ kind: 'saving' | 'saved' | 'error'; message?: string }>();
 
   const target = useMemo(() => words.join(''), [words]);
   const targetCps = useMemo(() => [...target], [target]);
@@ -66,6 +85,9 @@ export function TypingTest() {
     if (!corpus) return;
     typed.current = [];
     stats.current = freshStats();
+    keystrokes.current = [];
+    lastKeyAt.current = 0;
+    setSaveState(undefined);
     setWords(buildPassage(corpus, config.kind === 'words' ? config.count : TIMED_PASSAGE_WORDS));
     setCaret(0);
     setPhase('idle');
@@ -85,6 +107,43 @@ export function TypingTest() {
     return () => clearTimeout(id);
   }, [phase, config]);
 
+  /** Final numbers for the run. One definition, so the saved row and the screen agree. */
+  const finalScore = useCallback(() => {
+    const typedText = typed.current.join('');
+    return score({
+      correctCp: countCorrectCodepoints(target, typedText),
+      correctClusters: countCorrectClusters(target, typedText),
+      correctPresses: stats.current.correctPresses,
+      totalPresses: stats.current.totalPresses,
+      ms: stats.current.endedAt - stats.current.startedAt,
+    });
+  }, [target]);
+
+  useEffect(() => {
+    if (phase !== 'done') return;
+    // Exactly one save per run, whatever makes this effect re-run.
+    if (savedFor.current === stats.current.startedAtEpoch) return;
+    savedFor.current = stats.current.startedAtEpoch;
+
+    const final = finalScore();
+    setSaveState({ kind: 'saving' });
+
+    saveSession(
+      {
+        startedAt: stats.current.startedAtEpoch,
+        mode: config.kind === 'time' ? `time:${config.seconds}` : `words:${config.count}`,
+        durationMs: Math.round(stats.current.endedAt - stats.current.startedAt),
+        cpm: final.cpm,
+        accuracy: final.accuracy,
+      },
+      keystrokes.current,
+    ).then(
+      () => setSaveState({ kind: 'saved' }),
+      (e: unknown) =>
+        setSaveState({ kind: 'error', message: e instanceof Error ? e.message : String(e) }),
+    );
+  }, [phase, config, finalScore]);
+
   function handleAction(action: KeyAction) {
     if (phase === 'done' || targetCps.length === 0) return;
     const buffer = typed.current;
@@ -100,11 +159,26 @@ export function TypingTest() {
 
     if (phase === 'idle') {
       stats.current.startedAt = performance.now();
+      stats.current.startedAtEpoch = Date.now();
       setPhase('running');
     }
 
+    const wanted = targetCps[buffer.length] ?? null;
+    const correct = action.cp === wanted;
+    const now = performance.now();
+
     stats.current.totalPresses += 1;
-    if (action.cp === targetCps[buffer.length]) stats.current.correctPresses += 1;
+    if (correct) stats.current.correctPresses += 1;
+
+    keystrokes.current.push({
+      targetCodepoint: wanted,
+      typedCodepoint: action.cp,
+      correct,
+      // Zero on the first keystroke — there is no previous one to measure from.
+      msSincePrev: lastKeyAt.current === 0 ? 0 : Math.round(now - lastKeyAt.current),
+    });
+    lastKeyAt.current = now;
+
     buffer.push(action.cp);
     setCaret(buffer.length);
 
@@ -163,10 +237,9 @@ export function TypingTest() {
 
       {phase === 'done' && (
         <Results
-          target={target}
-          typedText={typedText}
-          correctCp={correctCp}
+          final={finalScore()}
           stats={stats.current}
+          saveState={saveState}
           onRestart={restart}
         />
       )}
@@ -279,26 +352,16 @@ function LiveStats({
 }
 
 function Results({
-  target,
-  typedText,
-  correctCp,
+  final,
   stats,
+  saveState,
   onRestart,
 }: {
-  target: string;
-  typedText: string;
-  correctCp: number;
+  final: Score;
   stats: Stats;
+  saveState?: { kind: 'saving' | 'saved' | 'error'; message?: string };
   onRestart: () => void;
 }) {
-  const final = score({
-    correctCp,
-    correctClusters: countCorrectClusters(target, typedText),
-    correctPresses: stats.correctPresses,
-    totalPresses: stats.totalPresses,
-    ms: stats.endedAt - stats.startedAt,
-  });
-
   return (
     <div className="border-border bg-surface space-y-4 rounded-lg border p-6">
       <h2 className="text-muted text-sm font-medium">Result</h2>
@@ -320,12 +383,22 @@ function Results({
         MonkeyType Latin score.
       </p>
 
-      <button
-        onClick={onRestart}
-        className="bg-caret/15 text-caret hover:bg-caret/25 focus-visible:ring-caret cursor-pointer rounded-md px-4 py-2 text-sm transition-colors focus-visible:ring-2 focus-visible:outline-none"
-      >
-        Go again
-      </button>
+      <div className="flex flex-wrap items-center gap-4">
+        <button
+          onClick={onRestart}
+          className="bg-caret/15 text-caret hover:bg-caret/25 focus-visible:ring-caret cursor-pointer rounded-md px-4 py-2 text-sm transition-colors focus-visible:ring-2 focus-visible:outline-none"
+        >
+          Go again
+        </button>
+
+        {saveState?.kind === 'saving' && <span className="text-muted text-xs">Saving…</span>}
+        {saveState?.kind === 'saved' && (
+          <span className="text-muted text-xs">Saved to your local database.</span>
+        )}
+        {saveState?.kind === 'error' && (
+          <span className="text-error text-xs">Not saved: {saveState.message}</span>
+        )}
+      </div>
     </div>
   );
 }

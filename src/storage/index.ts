@@ -9,6 +9,19 @@
  */
 import type { InputMode } from '../keyboard/nida';
 
+// Session history is SQLite in a Web Worker. Re-exported through this module so
+// nothing outside `src/storage/` ever imports the worker or the schema directly.
+export {
+  exportDatabase,
+  importDatabase,
+  initDatabase,
+  onDbStatus,
+  recentSessions,
+  saveSession,
+  type DbStatus,
+} from './db';
+export type { KeystrokeRecord, SessionRecord, StoredSession } from './schema';
+
 export type Theme = 'light' | 'dark';
 
 export interface Settings {
