@@ -1,0 +1,16 @@
+<!--
+  Geometry only, no <text>. An icon SVG is a standalone document: it cannot see
+  the app's bundled Noto Sans Khmer, so a ក drawn as text falls back to the
+  system Khmer font and renders as tofu on the many machines that have none —
+  the exact dependency this project refuses everywhere else.
+
+  ponytail: no Khmer glyph. Outline ក to a <path> from the bundled font if the
+  mark needs to read as Khmer rather than as a caret.
+
+  Content sits inside the central 80% so the `maskable` crop cannot clip it.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Khmer NiDA Typing Trainer">
+  <rect width="64" height="64" rx="12" fill="#22c55e" />
+  <rect x="19" y="29.5" width="16" height="5" rx="2.5" fill="#0f172a" />
+  <rect x="39" y="18" width="6" height="28" rx="3" fill="#0f172a" />
+</svg>

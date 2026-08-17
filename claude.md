@@ -61,6 +61,8 @@ Work one phase at a time. At the end of each phase: run tests, run
 `npm run build`, then summarise what changed and how to verify it. Don't start
 the next phase without being asked.
 
+Opus will be the orchestrator and reasoning model while Sonnet will be used to build the implementation from Opus
+
 
 
 ## Skills
