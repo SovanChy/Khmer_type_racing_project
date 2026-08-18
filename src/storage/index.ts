@@ -8,11 +8,15 @@
  * module, so callers never learn which backend holds what.
  */
 import type { InputMode } from '../keyboard/nida';
+// `export { x as y } from` re-exports only — it does not bind a local name —
+// so the database's clearAllData needs its own import to be callable below.
+import { clearAllData as clearDatabase } from './db';
 
 // Session history is SQLite in a Web Worker. Re-exported through this module so
 // nothing outside `src/storage/` ever imports the worker or the schema directly.
 export {
   exportDatabase,
+  exportJson,
   importDatabase,
   initDatabase,
   onDbStatus,
@@ -24,7 +28,7 @@ export {
   worstSubscripts,
   type DbStatus,
 } from './db';
-export type { KeystrokeRecord, SessionRecord, StoredSession } from './schema';
+export type { ExportPayload, KeystrokeRecord, SessionRecord, StoredSession } from './schema';
 export type { ClusterStat, CodepointStat, SubscriptStat, TrendPoint } from './analytics';
 
 export type Theme = 'light' | 'dark';
@@ -77,5 +81,21 @@ export function saveSettings(settings: Settings): void {
   } catch {
     // Storage disabled or full. The setting applies for this session and simply
     // will not survive a reload — not worth interrupting the user over.
+  }
+}
+
+/**
+ * F-06 "Clear all my data": the button says *all*, so this drops the OPFS
+ * database (see `db.worker.ts` `clearAllData` for why a table `DELETE` isn't
+ * enough) and removes the settings key, not just the session history.
+ */
+export async function clearAllData(): Promise<void> {
+  await clearDatabase();
+  try {
+    localStorage.removeItem(SETTINGS_KEY);
+  } catch {
+    // Same reasoning as saveSettings(): storage access can throw, and a
+    // preference surviving a "clear everything" click is not worth failing
+    // the whole operation over when the database wipe already succeeded.
   }
 }

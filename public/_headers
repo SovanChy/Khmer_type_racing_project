@@ -1,0 +1,25 @@
+# F-01: this app records every keystroke with millisecond timing (see
+# SECURITY-REVIEW.md §3/§9). connect-src 'self' is the load-bearing line here —
+# with no outbound origin permitted, a compromised dependency has nowhere to
+# send it.
+#
+# 'wasm-unsafe-eval' is required or SQLite-WASM will not instantiate.
+# worker-src 'self' blob: covers how Vite emits the ES-module worker.
+#
+# This file must stay in public/ — Vite copies public/ verbatim into dist/,
+# and Netlify only reads _headers from the publish directory. A root-level
+# _headers is silently ignored.
+#
+# Verified as of this commit: the built dist/index.html contains no inline
+# <script> (vite-plugin-pwa emits registerSW.js as an external file), so
+# script-src needs no 'unsafe-inline' or hash. If a future change inlines a
+# script, the app will break at this line — that is the intended failure.
+#
+# style-src keeps 'unsafe-inline' because it has not been verified in a
+# browser that nothing injects inline styles at runtime; tightening it is a
+# follow-up that needs a real browser check.
+/*
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self'; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: no-referrer
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), interest-cohort=()

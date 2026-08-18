@@ -7,5 +7,7 @@
   to = "/index.html"
   status = 200
 
-# No headers block: storage uses the opfs-sahpool VFS specifically because it
-# needs no COOP/COEP cross-origin isolation headers. Don't add one.
+# No [[headers]] block here: COOP/COEP are deliberately absent because the
+# opfs-sahpool VFS needs no cross-origin isolation — don't add them. CSP and
+# the other security headers are a separate concern and ARE required; they
+# live in public/_headers, the single place for them.

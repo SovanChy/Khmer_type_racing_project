@@ -5,14 +5,20 @@ import sqlite3InitModule, {
   type Sqlite3Static,
 } from '@sqlite.org/sqlite-wasm';
 import {
+  ALL_KEYSTROKES,
+  ALL_SESSIONS,
   DB_FILENAME,
+  EXPORT_FORMAT,
+  EXPORT_VERSION,
   INSERT_KEYSTROKE,
   INSERT_SESSION,
   PRAGMAS,
   RECENT_SESSIONS,
   pendingMigrations,
+  type ExportPayload,
   type KeystrokeRecord,
   type SessionRecord,
+  type StoredSession,
 } from './schema';
 import {
   PAUSE_CUTOFF_MS,
@@ -35,7 +41,9 @@ export type WorkerOp =
   | { op: 'saveSession'; session: SessionRecord; keystrokes: KeystrokeRecord[] }
   | { op: 'recentSessions'; limit: number }
   | { op: 'exportDatabase' }
-  | { op: 'importDatabase'; bytes: Uint8Array }
+  | { op: 'exportJson' }
+  | { op: 'importExport'; data: ExportPayload }
+  | { op: 'clearAllData' }
   | { op: 'worstClusters'; limit: number; minAttempts: number }
   | { op: 'worstSubscripts'; limit: number; minAttempts: number }
   | { op: 'slowestCodepoints'; limit: number; minAttempts: number }
@@ -133,13 +141,119 @@ function saveSession(session: SessionRecord, keystrokes: KeystrokeRecord[]): num
   return sessionId;
 }
 
-async function importDatabase(bytes: Uint8Array): Promise<void> {
-  // The pool cannot overwrite a file that is currently open.
+/** Assembles every session and its keystrokes into the F-02 JSON export shape. */
+function buildExportPayload(): ExportPayload {
+  const sessions = select(ALL_SESSIONS, []) as StoredSession[];
+  const allKeystrokes = select(ALL_KEYSTROKES, []) as {
+    sessionId: number;
+    targetCodepoint: string | null;
+    targetCluster: string | null;
+    subscript: number;
+    typedCodepoint: string;
+    correct: number;
+    msSincePrev: number;
+  }[];
+
+  const bySession = new Map<number, KeystrokeRecord[]>();
+  for (const k of allKeystrokes) {
+    const list = bySession.get(k.sessionId) ?? [];
+    list.push({
+      targetCodepoint: k.targetCodepoint,
+      targetCluster: k.targetCluster,
+      subscript: k.subscript === 1,
+      typedCodepoint: k.typedCodepoint,
+      correct: k.correct === 1,
+      msSincePrev: k.msSincePrev,
+    });
+    bySession.set(k.sessionId, list);
+  }
+
+  return {
+    format: EXPORT_FORMAT,
+    version: EXPORT_VERSION,
+    exportedAt: Date.now(),
+    sessions: sessions.map((s) => ({
+      startedAt: s.startedAt,
+      mode: s.mode,
+      durationMs: s.durationMs,
+      cpm: s.cpm,
+      accuracy: s.accuracy,
+      keystrokes: bySession.get(s.id) ?? [],
+    })),
+  };
+}
+
+/**
+ * Replaces the entire history with a validated export. `data` has already
+ * been through `parseExport()` on the caller side, so this only has to move
+ * it into the database — every value still goes through bound parameters,
+ * never string-built SQL.
+ *
+ * One transaction for the wipe and the reinsert: a failure partway through
+ * (a full disk, a closed connection) must not leave the user with half their
+ * old history and half their new one.
+ */
+function importExport(data: ExportPayload): void {
+  db.transaction(() => {
+    db.exec('DELETE FROM keystrokes');
+    db.exec('DELETE FROM sessions');
+
+    const statement = db.prepare(INSERT_KEYSTROKE);
+    try {
+      for (const session of data.sessions) {
+        const inserted = db.exec({
+          sql: INSERT_SESSION,
+          bind: [session.startedAt, session.mode, session.durationMs, session.cpm, session.accuracy],
+          rowMode: 'object',
+          returnValue: 'resultRows',
+        });
+        const sessionId = Number(inserted[0]?.id);
+
+        for (const k of session.keystrokes) {
+          statement
+            .bind([
+              sessionId,
+              k.targetCodepoint,
+              k.targetCluster,
+              k.subscript ? 1 : 0,
+              k.typedCodepoint,
+              k.correct ? 1 : 0,
+              k.msSincePrev,
+            ])
+            .step();
+          statement.reset();
+        }
+      }
+    } finally {
+      statement.finalize();
+    }
+  });
+}
+
+/**
+ * F-06: drops the OPFS-backed file rather than deleting rows. A table-level
+ * `DELETE` leaves the bytes sitting in the file until SQLite happens to reuse
+ * that page — recoverable, which defeats the point of a "clear all my data"
+ * control over data the review classifies as biometric.
+ *
+ * `pool.wipeFiles()` (not `unlink()`) is the one that actually matters here:
+ * `unlink()` only disassociates a name from its slot in the pool, leaving the
+ * slot's previous bytes in place until reused. `wipeFiles()` truncates every
+ * slot's data back to its header, for real — see
+ * `node_modules/@sqlite.org/sqlite-wasm/dist/index.mjs`, `acquireAccessHandles`,
+ * which is what `wipeFiles()` drives via `reset(true)`: `ah.truncate(HEADER_OFFSET_DATA)`
+ * for every SAH. `removeVfs()` would be stronger still (deletes the OPFS
+ * directory outright) but the API doc is explicit that the VFS cannot be
+ * reused afterward without reloading the page, which would fail the "keeps
+ * working without a reload" requirement here.
+ */
+async function clearAllData(): Promise<void> {
+  // wipeFiles()'s behaviour is undefined against a handle still in use.
   db.close();
   try {
-    await pool.importDb(DB_FILENAME, bytes);
+    await pool.wipeFiles();
   } finally {
-    // Reopen either way: a rejected import must not leave the app with no
+    // Reopen either way: a failed wipe must not leave the app with no
     // database at all.
     openDatabase();
   }
@@ -186,8 +300,12 @@ function handle(request: WorkerRequest): unknown {
       if (pointer === undefined) throw new Error('The database is not open.');
       return sqlite3.capi.sqlite3_js_db_export(pointer);
     }
-    case 'importDatabase':
-      return importDatabase(request.bytes);
+    case 'exportJson':
+      return buildExportPayload();
+    case 'importExport':
+      return importExport(request.data);
+    case 'clearAllData':
+      return clearAllData();
   }
 }
 

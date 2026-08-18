@@ -4,6 +4,7 @@ import {
   clusterView,
   countCorrectClusters,
   countCorrectCodepoints,
+  elapsedMs,
   score,
   targetSites,
   toWords,
@@ -288,6 +289,33 @@ describe('wordProps — the performance invariant', () => {
 
   it('marks exactly one word active while typing', () => {
     expect(at(7).filter((p) => p.status === 'active')).toHaveLength(1);
+  });
+});
+
+describe('elapsedMs', () => {
+  it('subtracts paused time from the wall-clock span', () => {
+    // A 60s run with 10s spent blurred should score as 50s, not 60s — the
+    // whole point of tracking pausedMs is that time away doesn't inflate
+    // duration/cpm for the saved session.
+    expect(elapsedMs({ startedAt: 0, endedAt: 60_000, pausedMs: 10_000 })).toBe(50_000);
+  });
+
+  it('feeds a paused span straight into cpm via score()', () => {
+    const ms = elapsedMs({ startedAt: 0, endedAt: 60_000, pausedMs: 10_000 });
+    // 500 correct codepoints in the 50s actually spent typing = 600/min, not
+    // the 500/min a naive endedAt-startedAt would report.
+    const { cpm } = score({
+      correctCp: 500,
+      correctClusters: 0,
+      correctPresses: 500,
+      totalPresses: 500,
+      ms,
+    });
+    expect(cpm).toBe(600);
+  });
+
+  it('returns the full span when nothing was paused', () => {
+    expect(elapsedMs({ startedAt: 1_000, endedAt: 4_000, pausedMs: 0 })).toBe(3_000);
   });
 });
 

@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import {
+  clearAllData,
   exportDatabase,
+  exportJson,
   importDatabase,
   onDbStatus,
   recentSessions,
@@ -11,8 +13,13 @@ import {
 const button =
   'cursor-pointer rounded-md border border-border px-3 py-1.5 text-sm text-muted transition-colors hover:text-fg hover:border-fg/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-caret disabled:cursor-not-allowed disabled:opacity-40';
 
-function save(bytes: Uint8Array<ArrayBuffer>, filename: string): void {
-  const url = URL.createObjectURL(new Blob([bytes], { type: 'application/vnd.sqlite3' }));
+// Same shape as `button`, but red: this one is destructive and irreversible,
+// and should not be reachable by the same absent-minded click as an export.
+const dangerButton =
+  'cursor-pointer rounded-md border border-error/40 px-3 py-1.5 text-sm text-error transition-colors hover:bg-error/10 hover:border-error focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-error disabled:cursor-not-allowed disabled:opacity-40';
+
+function save(bytes: Uint8Array<ArrayBuffer> | string, filename: string, type: string): void {
+  const url = URL.createObjectURL(new Blob([bytes], { type }));
   const link = document.createElement('a');
   link.href = url;
   link.download = filename;
@@ -44,10 +51,27 @@ export function DataPanel() {
     recentSessions(5).then(setSessions, () => setSessions([]));
   }, [status, note]);
 
-  async function onExport() {
+  async function onExportSqlite() {
     setNote(undefined);
     try {
-      save(await exportDatabase(), `khmer-nida-trainer-${stamp()}.sqlite3`);
+      save(
+        await exportDatabase(),
+        `khmer-nida-trainer-${stamp()}.sqlite3`,
+        'application/vnd.sqlite3',
+      );
+    } catch (e: unknown) {
+      setNote({ kind: 'error', text: e instanceof Error ? e.message : String(e) });
+    }
+  }
+
+  async function onExportJson() {
+    setNote(undefined);
+    try {
+      save(
+        JSON.stringify(await exportJson()),
+        `khmer-nida-trainer-${stamp()}.json`,
+        'application/json',
+      );
     } catch (e: unknown) {
       setNote({ kind: 'error', text: e instanceof Error ? e.message : String(e) });
     }
@@ -56,12 +80,37 @@ export function DataPanel() {
   async function onImport(file: File) {
     setNote(undefined);
     // Destructive and unrecoverable without the export they may not have taken.
-    if (!confirm(`Replace your entire typing history with "${file.name}"? This cannot be undone.`)) {
+    if (
+      !confirm(
+        `Replace your entire typing history with the sessions in "${file.name}"? This cannot be undone.`,
+      )
+    ) {
       return;
     }
     try {
-      await importDatabase(new Uint8Array(await file.arrayBuffer()));
+      await importDatabase(await file.text());
       setNote({ kind: 'ok', text: 'History replaced.' });
+    } catch (e: unknown) {
+      setNote({ kind: 'error', text: e instanceof Error ? e.message : String(e) });
+    }
+  }
+
+  async function onClear() {
+    setNote(undefined);
+    // Says plainly what goes and that it's final — this is the one control in
+    // the panel that cannot be undone by re-importing an export the user might
+    // not have taken.
+    if (
+      !confirm(
+        'Delete all your typing history and settings from this device? ' +
+          'This removes the local database file itself, not just its rows, and cannot be undone.',
+      )
+    ) {
+      return;
+    }
+    try {
+      await clearAllData();
+      setNote({ kind: 'ok', text: 'All data cleared.' });
     } catch (e: unknown) {
       setNote({ kind: 'error', text: e instanceof Error ? e.message : String(e) });
     }
@@ -80,20 +129,23 @@ export function DataPanel() {
       </p>
 
       <div className="flex flex-wrap gap-2">
-        <button onClick={onExport} disabled={status !== 'ready'} className={button}>
-          Download my data
+        <button onClick={onExportSqlite} disabled={status !== 'ready'} className={button}>
+          Download my data (.sqlite3)
+        </button>
+        <button onClick={onExportJson} disabled={status !== 'ready'} className={button}>
+          Download as JSON
         </button>
         <button
           onClick={() => fileInput.current?.click()}
           disabled={status !== 'ready'}
           className={button}
         >
-          Import a .sqlite3 file
+          Import a JSON export
         </button>
         <input
           ref={fileInput}
           type="file"
-          accept=".sqlite3,.sqlite,.db,application/vnd.sqlite3"
+          accept=".json,application/json"
           className="sr-only"
           onChange={(e) => {
             const file = e.target.files?.[0];
@@ -101,6 +153,9 @@ export function DataPanel() {
             if (file) void onImport(file);
           }}
         />
+        <button onClick={onClear} disabled={status !== 'ready'} className={dangerButton}>
+          Clear all my data
+        </button>
       </div>
 
       {note && (

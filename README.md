@@ -137,12 +137,32 @@ Sessions and per-keystroke data are stored locally in a SQLite database
 (`@sqlite.org/sqlite-wasm`, `opfs-sahpool` VFS) running in a Web Worker —
 see `src/storage/index.ts`. Nothing is sent anywhere.
 
-- **Download my data**, in the "Your data" panel, exports the raw `.sqlite3`
-  file. Do this periodically: OPFS storage can be evicted by the browser
-  under storage pressure, so an export is a real backup, not a nice-to-have.
-- **Import a .sqlite3 file** replaces your entire local history with a
-  previously exported file (a confirmation dialog gates this — it's
-  destructive and not undoable).
+**OPFS is not encrypted at rest.** On a shared machine — a lab, a school, an
+internet café — anyone with access to the same OS account can read the
+browser profile and recover this data. Keep that in mind if this is used
+somewhere other than a personal device.
+
+- **Download my data (.sqlite3)**, in the "Your data" panel, exports the raw
+  database file. Do this periodically: OPFS storage can be evicted by the
+  browser under storage pressure, so an export is a real backup, not a
+  nice-to-have.
+- **Download as JSON** exports the same history in a plain JSON format (see
+  `parseExport()` in `src/storage/schema.ts` for the exact shape). This is
+  the format import accepts.
+- **Import a JSON export** replaces your entire local history with a
+  previously exported `.json` file (a confirmation dialog gates this — it's
+  destructive and not undoable). Import intentionally does **not** accept a
+  raw `.sqlite3` file: that would hand an uploaded file straight to the
+  SQLite parser, which is exactly the attack surface a "restore" feature
+  should not open up. Every field in an imported file is validated — wrong
+  types, out-of-range values, or an oversized file are rejected outright,
+  with the whole import failing rather than silently dropping bad rows.
+- **Clear all my data** closes the database connection and removes the
+  underlying OPFS file itself (not just its rows — a row-level `DELETE`
+  leaves the bytes recoverable in the file), then starts a fresh empty
+  database so the app keeps working without a reload. It also clears your
+  saved settings. This is gated by a confirmation dialog and cannot be
+  undone.
 - The database can only be open in one tab at a time — the `opfs-sahpool`
   VFS isn't multi-tab safe. A second tab shows "Already open in another tab"
   and won't record sessions until the first tab closes.

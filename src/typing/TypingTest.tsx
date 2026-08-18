@@ -5,6 +5,7 @@ import type { KeyAction } from '../keyboard/nida';
 import {
   countCorrectClusters,
   countCorrectCodepoints,
+  elapsedMs,
   score,
   targetSites,
   wordProps,
@@ -42,6 +43,13 @@ interface Stats {
   endedAt: number;
   /** Date.now() — wall clock, for storing when the run happened. */
   startedAtEpoch: number;
+  /**
+   * Total time spent paused (blurred) so far, in ms. Subtracted from
+   * `endedAt - startedAt` everywhere elapsed time is computed, rather than
+   * shifting `startedAt` itself — one accumulator is simpler than rewriting a
+   * monotonic anchor every time focus returns.
+   */
+  pausedMs: number;
 }
 
 const freshStats = (): Stats => ({
@@ -50,6 +58,7 @@ const freshStats = (): Stats => ({
   startedAt: 0,
   endedAt: 0,
   startedAtEpoch: 0,
+  pausedMs: 0,
 });
 
 export function TypingTest() {
@@ -77,6 +86,14 @@ export function TypingTest() {
   const savedFor = useRef(-1);
   const [saveState, setSaveState] = useState<{ kind: 'saving' | 'saved' | 'error'; message?: string }>();
 
+  // Blurring the input pauses a running test (F-11): the timer must stop and
+  // elapsed time must not include the blurred interval. `paused` is only ever
+  // true while `phase === 'running'`. `pauseStartedAt` is a ref (not state) —
+  // it's an implementation detail of the accumulator, not something anything
+  // renders from.
+  const [paused, setPaused] = useState(false);
+  const pauseStartedAt = useRef<number | null>(null);
+
   const [drill, setDrill] = useState(false);
 
   // In a ref, not state: refreshing the weights must not rebuild the passage
@@ -103,6 +120,8 @@ export function TypingTest() {
     stats.current = freshStats();
     keystrokes.current = [];
     lastKeyAt.current = 0;
+    pauseStartedAt.current = null;
+    setPaused(false);
     setSaveState(undefined);
 
     const count = config.kind === 'words' ? config.count : TIMED_PASSAGE_WORDS;
@@ -118,14 +137,47 @@ export function TypingTest() {
   useEffect(() => restart(), [restart]);
 
   // A timed test ends on the clock; a word test ends when the passage runs out.
+  // Recomputed from scratch on every pause/resume so the remaining time — not
+  // the original duration — is what gets scheduled, and nothing is scheduled
+  // at all while paused.
   useEffect(() => {
-    if (phase !== 'running' || config.kind !== 'time') return;
+    if (phase !== 'running' || config.kind !== 'time' || paused) return;
+    const elapsed = elapsedMs({
+      startedAt: stats.current.startedAt,
+      endedAt: performance.now(),
+      pausedMs: stats.current.pausedMs,
+    });
+    const remaining = config.seconds * 1000 - elapsed;
+    if (remaining <= 0) {
+      stats.current.endedAt = performance.now();
+      setPhase('done');
+      return;
+    }
     const id = setTimeout(() => {
       stats.current.endedAt = performance.now();
       setPhase('done');
-    }, config.seconds * 1000);
+    }, remaining);
     return () => clearTimeout(id);
-  }, [phase, config]);
+  }, [phase, config, paused]);
+
+  /** Blur pauses a running test — see the `Stats.pausedMs` comment for why. */
+  function handleInputBlur() {
+    if (phase !== 'running') return;
+    pauseStartedAt.current = performance.now();
+    setPaused(true);
+  }
+
+  function handleInputFocus() {
+    if (pauseStartedAt.current === null) return;
+    stats.current.pausedMs += performance.now() - pauseStartedAt.current;
+    pauseStartedAt.current = null;
+    // Otherwise the next keystroke's msSincePrev would read as tens of
+    // seconds of "hesitation" instead of the pause it actually was. 0 has the
+    // same meaning here as it does for the very first keystroke of a run: no
+    // previous keystroke to measure a gap from.
+    lastKeyAt.current = 0;
+    setPaused(false);
+  }
 
   /** Final numbers for the run. One definition, so the saved row and the screen agree. */
   const finalScore = useCallback(() => {
@@ -135,7 +187,11 @@ export function TypingTest() {
       correctClusters: countCorrectClusters(target, typedText),
       correctPresses: stats.current.correctPresses,
       totalPresses: stats.current.totalPresses,
-      ms: stats.current.endedAt - stats.current.startedAt,
+      ms: elapsedMs({
+        startedAt: stats.current.startedAt,
+        endedAt: stats.current.endedAt,
+        pausedMs: stats.current.pausedMs,
+      }),
     });
   }, [target]);
 
@@ -166,7 +222,13 @@ export function TypingTest() {
       {
         startedAt: stats.current.startedAtEpoch,
         mode: config.kind === 'time' ? `time:${config.seconds}` : `words:${config.count}`,
-        durationMs: Math.round(stats.current.endedAt - stats.current.startedAt),
+        durationMs: Math.round(
+          elapsedMs({
+            startedAt: stats.current.startedAt,
+            endedAt: stats.current.endedAt,
+            pausedMs: stats.current.pausedMs,
+          }),
+        ),
         cpm: final.cpm,
         accuracy: final.accuracy,
       },
@@ -256,11 +318,18 @@ export function TypingTest() {
         totalPresses={stats.current.totalPresses}
         startedAt={stats.current.startedAt}
         endedAt={stats.current.endedAt}
+        pausedMs={stats.current.pausedMs}
+        paused={paused}
         caret={caret}
         totalCps={targetCps.length}
       />
 
-      <KeyboardInput onAction={handleAction}>
+      <KeyboardInput
+        onAction={handleAction}
+        paused={paused}
+        onBlur={handleInputBlur}
+        onFocus={handleInputFocus}
+      >
         <p className="font-khmer text-2xl leading-[2.2] sm:text-3xl" lang="km">
           {wordProps(words, typed.current, caret).map((props, i) => (
             <Word key={i} {...props} />
@@ -364,6 +433,8 @@ function LiveStats({
   totalPresses,
   startedAt,
   endedAt,
+  pausedMs,
+  paused,
   caret,
   totalCps,
 }: {
@@ -374,22 +445,28 @@ function LiveStats({
   totalPresses: number;
   startedAt: number;
   endedAt: number;
+  pausedMs: number;
+  paused: boolean;
   caret: number;
   totalCps: number;
 }) {
   const [, tick] = useReducer((n: number) => n + 1, 0);
 
+  // Stop ticking while paused so the displayed cpm/time freeze instead of
+  // drifting down as if the user were typing nothing for tens of seconds.
   useEffect(() => {
-    if (phase !== 'running') return;
+    if (phase !== 'running' || paused) return;
     const id = setInterval(tick, 250);
     return () => clearInterval(id);
-  }, [phase]);
+  }, [phase, paused]);
 
-  const ms = phase === 'idle' ? 0 : (endedAt || performance.now()) - startedAt;
+  const ms =
+    phase === 'idle' ? 0 : elapsedMs({ startedAt, endedAt: endedAt || performance.now(), pausedMs });
   const live = score({ correctCp, correctClusters: 0, correctPresses, totalPresses, ms });
 
-  const progress =
-    config.kind === 'time'
+  const progress = paused
+    ? 'paused'
+    : config.kind === 'time'
       ? `${Math.max(0, Math.ceil(config.seconds - ms / 1000))}s`
       : `${caret}/${totalCps}`;
 

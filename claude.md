@@ -18,8 +18,15 @@ npm run typecheck  # tsc --noEmit
 
 ## Hard rules
 
-- **Never use `Intl.Segmenter` for Khmer grapheme clusters.** It splits coeng
-  sequences. Use the segmenter in `src/khmer/segment.ts`.
+- **`Intl.Segmenter` has two halves — don't collapse them.**
+  Banned for grapheme clusters: it splits coeng sequences. Use
+  `src/khmer/segment.ts`.
+  Required for word boundaries: Khmer has no inter-word spaces, and it carries a
+  dictionary we can't reproduce. Runs at corpus build time only, never at runtime.
+- **Keyboard handlers bind to the typing input element only.** Never to
+  `document` or `window`. The input is visible and click-to-focus; never
+  autofocus it. This is a privacy property, not a UX preference — the user must
+  be able to see when keystrokes are being recorded.
 - **Never generate or "fix" NiDA key mappings from memory.** If a mapping looks
   wrong, say so and stop. A wrong layout teaches wrong muscle memory.
 - **Compare at the codepoint level, render at the cluster level.** These are not
@@ -61,9 +68,9 @@ Work one phase at a time. At the end of each phase: run tests, run
 `npm run build`, then summarise what changed and how to verify it. Don't start
 the next phase without being asked.
 
-Opus will be the orchestrator and reasoning model while Sonnet will be used to build the implementation from Opus
 
+## Skill
+use superpower and Ui/UX pro
 
-
-## Skills
-use Superpower and UX UI pro skills to build the project
+## workflow 
+use Opus as an orchestrator and Sonnet as the implementation 

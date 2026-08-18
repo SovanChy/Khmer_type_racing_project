@@ -198,6 +198,23 @@ export interface Score {
   accuracy: number;
 }
 
+/**
+ * Wall-clock elapsed time with paused (blurred) time excluded. One definition
+ * so `finalScore()`, the saved `durationMs`, and the live stats in
+ * `TypingTest.tsx` can't drift apart on the same subtraction.
+ */
+export function elapsedMs({
+  startedAt,
+  endedAt,
+  pausedMs,
+}: {
+  startedAt: number;
+  endedAt: number;
+  pausedMs: number;
+}): number {
+  return endedAt - startedAt - pausedMs;
+}
+
 export function score({
   correctCp,
   correctClusters,
