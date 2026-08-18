@@ -142,6 +142,13 @@ internet café — anyone with access to the same OS account can read the
 browser profile and recover this data. Keep that in mind if this is used
 somewhere other than a personal device.
 
+In OS-layout mode the app also records, in `localStorage`, which character
+each physical key produced on your machine — this is what fills in the
+on-screen keyboard diagram. It is derived from your keystrokes, so it is the
+same category of data as the keystroke table above: local only, never sent
+anywhere, and cleared by "Clear all my data". Only Khmer codepoints are kept;
+anything else you type is discarded rather than recorded.
+
 - **Download my data (.sqlite3)**, in the "Your data" panel, exports the raw
   database file. Do this periodically: OPFS storage can be evicted by the
   browser under storage pressure, so an export is a real backup, not a
@@ -161,8 +168,8 @@ somewhere other than a personal device.
   underlying OPFS file itself (not just its rows — a row-level `DELETE`
   leaves the bytes recoverable in the file), then starts a fresh empty
   database so the app keeps working without a reload. It also clears your
-  saved settings. This is gated by a confirmation dialog and cannot be
-  undone.
+  saved settings and the learned keyboard layout. This is gated by a
+  confirmation dialog and cannot be undone.
 - The database can only be open in one tab at a time — the `opfs-sahpool`
   VFS isn't multi-tab safe. A second tab shows "Already open in another tab"
   and won't record sessions until the first tab closes.

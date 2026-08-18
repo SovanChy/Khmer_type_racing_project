@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { NIDA, type InputMode } from './keyboard/nida';
+import { seedFromBrowser } from './keyboard/observed';
 import { TypingTest } from './typing/TypingTest';
 import { Analytics } from './Analytics';
 import { DataPanel } from './DataPanel';
@@ -58,6 +59,7 @@ function ThemeToggle() {
 export function App() {
   const inputMode = useStore((s) => s.inputMode);
   const theme = useStore((s) => s.theme);
+  const noteLayoutLearned = useStore((s) => s.noteLayoutLearned);
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark');
@@ -67,10 +69,19 @@ export function App() {
   // tab is told immediately instead of after a run it cannot store.
   useEffect(() => initDatabase(), []);
 
+  // Unconditional: cheap, and the user can switch to OS mode later even if
+  // remap is selected now. seedFromBrowser() never rejects (see observed.ts),
+  // but void-catch defensively anyway so a mount effect can never crash the app.
+  useEffect(() => {
+    void seedFromBrowser()
+      .then(noteLayoutLearned)
+      .catch(() => {});
+  }, [noteLayoutLearned]);
+
   const unverified = inputMode === 'remap' && !NIDA.verified;
 
   return (
-    <main className="mx-auto min-h-dvh max-w-3xl space-y-8 px-6 py-10">
+    <main className="mx-auto min-h-dvh max-w-4xl space-y-8 px-6 py-10">
       <header className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-lg font-semibold">Khmer NiDA Typing Trainer</h1>

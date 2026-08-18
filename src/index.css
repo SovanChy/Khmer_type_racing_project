@@ -22,6 +22,7 @@
   --color-error: var(--error);
   --color-caret: var(--caret);
   --color-border: var(--border);
+  --color-success: var(--success);
 }
 
 :root {
@@ -33,6 +34,11 @@
   --error: #dc2626; /* 4.8:1 on white */
   --caret: #16a34a;
   --border: rgb(15 23 42 / 0.12);
+  /* Not a reuse of --caret: caret is a UI accent (focus rings, chips, the
+     caret bar), correct-text is a semantic state. Keeping them separate lets
+     the caret bar stay visually distinguishable sitting inside a run of
+     correct (green) text instead of disappearing into it. */
+  --success: #15803d;
 }
 
 .dark {
@@ -44,6 +50,7 @@
   --error: #f87171; /* #dc2626 is too dark to read on #0f172a */
   --caret: #22c55e;
   --border: rgb(248 250 252 / 0.1);
+  --success: #4ade80;
 }
 
 body {

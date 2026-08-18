@@ -1,6 +1,7 @@
 import { useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { useStore } from '../store';
 import { resolveKey, type KeyAction } from './nida';
+import { recordKey } from './observed';
 
 interface Props {
   onAction: (action: KeyAction) => void;
@@ -26,6 +27,7 @@ interface Props {
  */
 export function KeyboardInput({ onAction, paused = false, onBlur, onFocus, children }: Props) {
   const inputMode = useStore((s) => s.inputMode);
+  const noteLayoutLearned = useStore((s) => s.noteLayoutLearned);
   const input = useRef<HTMLInputElement>(null);
   const [focused, setFocused] = useState(false);
 
@@ -34,6 +36,16 @@ export function KeyboardInput({ onAction, paused = false, onBlur, onFocus, child
     // Swallow only what we consume. Swallowing everything would trap keyboard
     // users, who need Tab and Escape to leave the field.
     if (action.type !== 'ignore') e.preventDefault();
+
+    // Only in OS mode: in remap mode the app itself decides the mapping via
+    // nida.json, so there's nothing to learn from what was typed. Gated on
+    // recordKey's return value because a repeat of an already-learned key
+    // must not re-render the keyboard diagram.
+    if (inputMode === 'os' && action.type === 'char' && e.code !== 'Space') {
+      const layer = e.getModifierState('AltGraph') ? 'altgr' : e.shiftKey ? 'shift' : 'base';
+      if (recordKey(e.code, layer, action.cp)) noteLayoutLearned();
+    }
+
     onAction(action);
     // Anything we let through would otherwise accumulate in the element.
     e.currentTarget.value = '';

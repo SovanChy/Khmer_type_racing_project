@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { buildDrillPassage, buildPassage, loadCorpus, type CorpusEntry } from '../corpus';
+import { KeyboardHint } from '../keyboard/KeyboardHint';
 import { KeyboardInput } from '../keyboard/KeyboardInput';
 import type { KeyAction } from '../keyboard/nida';
 import {
+  activeClusterDetail,
   countCorrectClusters,
   countCorrectCodepoints,
   elapsedMs,
@@ -12,7 +14,7 @@ import {
   CLUSTERS_PER_WORD,
   type Score,
 } from './engine';
-import { Word, wordRenders } from './Word';
+import { Word, wordRenders, CELL_CLASS } from './Word';
 import { saveSession, worstClusters, type KeystrokeRecord } from '../storage';
 import { useStore } from '../store';
 
@@ -63,6 +65,8 @@ const freshStats = (): Stats => ({
 
 export function TypingTest() {
   const noteSessionSaved = useStore((s) => s.noteSessionSaved);
+  const showKeyboard = useStore((s) => s.showKeyboard);
+  const setShowKeyboard = useStore((s) => s.setShowKeyboard);
   const [corpus, setCorpus] = useState<CorpusEntry[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [config, setConfig] = useState<TestConfig>({ kind: 'time', seconds: 30 });
@@ -72,6 +76,14 @@ export function TypingTest() {
   // The one piece of state a keystroke touches. Which word is active and what
   // each word displays both derive from this number, so nothing else has to move.
   const [caret, setCaret] = useState(0);
+
+  // R2: which codepoint the last keypress got wrong, for the keyboard hint's
+  // red key. Safe for the performance invariant even though it is state that
+  // changes every keystroke: `setCaret` above already re-renders TypingTest on
+  // every keystroke, and <Word>'s memo depends only on `wordProps`, which this
+  // never touches -- so it costs nothing beyond a render TypingTest was doing
+  // anyway.
+  const [wrongCp, setWrongCp] = useState<string | null>(null);
 
   // The full typed buffer and the running counters live in refs: mutating them
   // costs no render, which is what keeps a keypress off the rest of the passage.
@@ -95,6 +107,13 @@ export function TypingTest() {
   const pauseStartedAt = useRef<number | null>(null);
 
   const [drill, setDrill] = useState(false);
+
+  // The passage is a fixed-height window (see the JSX); this keeps the active
+  // word inside it. A DOM query rather than React state on purpose: scrolling
+  // is not something any component renders from, and routing it through state
+  // would re-render the passage on every keystroke.
+  const passage = useRef<HTMLParagraphElement>(null);
+  const more = useRef<HTMLSpanElement>(null);
 
   // In a ref, not state: refreshing the weights must not rebuild the passage
   // mid-run or wipe the results screen the user is still reading.
@@ -123,6 +142,7 @@ export function TypingTest() {
     pauseStartedAt.current = null;
     setPaused(false);
     setSaveState(undefined);
+    setWrongCp(null);
 
     const count = config.kind === 'words' ? config.count : TIMED_PASSAGE_WORDS;
     setWords(
@@ -135,6 +155,27 @@ export function TypingTest() {
   // Also fires when the corpus arrives or the config changes, which is exactly
   // when a fresh passage is wanted.
   useEffect(() => restart(), [restart]);
+
+  // Keep the active word inside the passage window. `block: 'nearest'` scrolls
+  // the minimum needed, so a word already on screen moves nothing — without it
+  // every keystroke would yank the whole page.
+  //
+  // The "…" marker is toggled here rather than rendered from state: it has to
+  // be decided from the post-scroll scroll position, which only exists after
+  // the DOM has settled, and a state update would re-render the passage on
+  // every keystroke. Same reasoning as RenderCounter below.
+  useEffect(() => {
+    // Not named `window`: shadowing the global would make the codebase-wide
+    // grep for `window` handlers (a privacy rule in CLAUDE.md) return noise.
+    const view = passage.current;
+    view?.querySelector('[data-active]')?.scrollIntoView({ block: 'nearest' });
+    if (!view || !more.current) return;
+    // The 1px slack absorbs sub-pixel line heights, which otherwise leave a
+    // fully-scrolled window looking like it still has text below.
+    const hasMore = view.scrollTop + view.clientHeight < view.scrollHeight - 1;
+    // visibility, not display: hiding it must not move the keyboard below.
+    more.current.style.visibility = hasMore ? 'visible' : 'hidden';
+  }, [caret, words]);
 
   // A timed test ends on the clock; a word test ends when the passage runs out.
   // Recomputed from scratch on every pause/resume so the remaining time — not
@@ -269,6 +310,9 @@ export function TypingTest() {
 
     stats.current.totalPresses += 1;
     if (correct) stats.current.correctPresses += 1;
+    // R2: a correct press is never "wrong", so null it out immediately rather
+    // than leaving a stale red key lit on the keyboard hint.
+    setWrongCp(correct ? null : action.cp);
 
     keystrokes.current.push({
       targetCodepoint: wanted,
@@ -306,9 +350,24 @@ export function TypingTest() {
   // much longer passage ever makes it show up.
   const correctCp = countCorrectCodepoints(target, typedText);
 
+  // R2 strip: the active word's own cluster decomposition. Cluster boundaries
+  // never cross a word boundary (toWords/chunkByClusters both cut on cluster
+  // edges), so feeding the active word alone is equivalent to feeding the
+  // whole passage and cheaper.
+  const currentWordProps = wordProps(words, typed.current, caret);
+  const activeWord = currentWordProps.find((p) => p.status === 'active');
+  const activeDetail = activeWord ? activeClusterDetail(activeWord.target, activeWord.typed) : [];
+
   return (
     <section className="space-y-6">
-      <ConfigBar config={config} onChange={setConfig} drill={drill} onDrillChange={setDrill} />
+      <ConfigBar
+        config={config}
+        onChange={setConfig}
+        drill={drill}
+        onDrillChange={setDrill}
+        showKeyboard={showKeyboard}
+        onShowKeyboardChange={setShowKeyboard}
+      />
 
       <LiveStats
         phase={phase}
@@ -330,12 +389,86 @@ export function TypingTest() {
         onBlur={handleInputBlur}
         onFocus={handleInputFocus}
       >
-        <p className="font-khmer text-2xl leading-[2.2] sm:text-3xl" lang="km">
-          {wordProps(words, typed.current, caret).map((props, i) => (
+        {/*
+          A fixed three-line window, not the whole passage. A 150-word timed
+          passage is ~25 lines at any readable column width, which pushes the
+          keyboard hint and the results screen below the fold — so the passage
+          scrolls under the caret instead of growing. `overflow-hidden` still
+          scrolls programmatically; making it `auto` would let the user scroll
+          the text out of sync with what they are typing.
+
+          The height is in `em` so it tracks the responsive font size, and the
+          multiplier is the `leading` value: 3 lines exactly, whatever the
+          breakpoint. Changing one without the other silently clips a line.
+        */}
+        <p
+          ref={passage}
+          className="font-khmer h-[6.6em] overflow-hidden text-2xl leading-[2.2] sm:text-3xl"
+          lang="km"
+        >
+          {currentWordProps.map((props, i) => (
             <Word key={i} {...props} />
           ))}
         </p>
+
+        {/*
+          "there is more passage below this window". Hidden, not unmounted, by
+          the scroll effect above. aria-hidden because it is a visual affordance
+          for a clipped box — every word is in the DOM either way, so a screen
+          reader has nothing to be told here.
+        */}
+        <span
+          ref={more}
+          aria-hidden
+          className="text-muted block text-right font-mono text-sm leading-none"
+          style={{ visibility: 'hidden' }}
+        >
+          …
+        </span>
+
+        {/*
+          R2 cluster-decomposition strip: the active cluster broken into the
+          pieces a single passage cell cannot colour separately (a coeng and
+          its consonant, e.g. ្គ, has to light up red or green on its own).
+          Unlike the passage above, each piece here is its OWN element on
+          purpose — that is safe precisely because this strip never renders a
+          cluster mid-stack across two cells the way splitting the passage's
+          text run would; each cell is a self-contained stacking unit, so
+          nothing needs to shape across the boundary between them.
+          aria-hidden: a visual decomposition of text already present in the
+          passage, nothing new for a screen reader. Hidden (not unmounted)
+          when there's no active cluster, so the keyboard hint below doesn't
+          jump — same reasoning as the "…" marker above.
+        */}
+        <div
+          aria-hidden
+          lang="km"
+          className="font-khmer flex h-[1.6em] items-center gap-1.5 text-lg leading-none"
+          style={{ visibility: activeDetail.length > 0 ? 'visible' : 'hidden' }}
+        >
+          {activeDetail.map((cell, i) => {
+            // A combining mark (coeng, a vowel sign, ...) has nothing to
+            // stack onto in a lone cell, so it's shown on U+25CC DOTTED
+            // CIRCLE — the standard way to display a combining character
+            // standalone. A base consonant is not a Mark and gets no circle.
+            const dotted = /\p{M}/u.test(cell.text.charAt(0)) ? '◌' : '';
+            return (
+              <span key={i} className={CELL_CLASS[cell.status]}>
+                {dotted}
+                {cell.text}
+              </span>
+            );
+          })}
+        </div>
       </KeyboardInput>
+
+      {showKeyboard && (
+        <KeyboardHint
+          nextCp={sites[caret]?.codepoint ?? null}
+          nextCluster={sites[caret]?.cluster ?? null}
+          wrongCp={wrongCp}
+        />
+      )}
 
       {/* Immediately after the input in DOM order, so Tab then Enter restarts. */}
       <button
@@ -364,11 +497,15 @@ function ConfigBar({
   onChange,
   drill,
   onDrillChange,
+  showKeyboard,
+  onShowKeyboardChange,
 }: {
   config: TestConfig;
   onChange: (config: TestConfig) => void;
   drill: boolean;
   onDrillChange: (drill: boolean) => void;
+  showKeyboard: boolean;
+  onShowKeyboardChange: (show: boolean) => void;
 }) {
   const chip = (selected: boolean) =>
     `cursor-pointer rounded-md px-2.5 py-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-caret ${
@@ -415,6 +552,16 @@ function ConfigBar({
         className={chip(drill)}
       >
         drill
+      </button>
+
+      <button
+        role="switch"
+        aria-checked={showKeyboard}
+        onClick={() => onShowKeyboardChange(!showKeyboard)}
+        title="Show an on-screen keyboard diagram of the next key to press"
+        className={chip(showKeyboard)}
+      >
+        keyboard
       </button>
     </div>
   );

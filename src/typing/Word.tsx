@@ -12,10 +12,18 @@ import { clusterView, type CellStatus, type WordProps } from './engine';
  */
 export const wordRenders = { count: 0 };
 
-const CELL_CLASS: Record<CellStatus, string> = {
-  correct: 'text-fg',
+// Exported so the R2 cluster-decomposition strip in TypingTest.tsx paints
+// with the exact same token set as the passage, rather than a second copy
+// that could drift out of sync with it.
+export const CELL_CLASS: Record<CellStatus, string> = {
+  correct: 'text-success',
+  // The underline is not decorative -- it is the non-colour cue that keeps
+  // this usable under red/green colour blindness now that correct/incorrect
+  // differ only by hue. Do not "clean up" the underline as redundant.
   incorrect: 'text-error underline decoration-error/50 underline-offset-4',
-  partial: 'text-fg/60',
+  // Dimmed success, not dimmed default: partial means some codepoints in the
+  // cluster landed correct and none are wrong yet.
+  partial: 'text-success/60',
   pending: 'text-muted',
 };
 
@@ -47,7 +55,13 @@ export const Word = memo(function Word({ target, typed, status }: WordProps) {
   const { cells, caret } = clusterView(target, typed);
 
   return (
-    <span className="whitespace-pre">
+    <span
+      // Read by TypingTest's scroll effect. An attribute rather than a ref
+      // handed down per word: a ref prop would change identity as the active
+      // word moves and defeat the memo bailout this component exists for.
+      data-active={status === 'active' || undefined}
+      className={`whitespace-pre ${status === 'active' ? 'bg-caret/5 rounded-sm' : ''}`}
+    >
       {cells.map((cell, i) => (
         <Fragment key={i}>
           {status === 'active' && i === caret && <Caret />}
