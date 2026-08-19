@@ -53,13 +53,16 @@ function cellClass({
   // content area and jitter every other cell in the row when a key becomes
   // (or stops being) the target. A ring is a second, non-colour-only cue
   // layered on top — geometry, not just hue — that costs no layout.
-  if (isTarget) return 'border-caret bg-caret/15 text-caret ring-2 ring-inset ring-caret';
-  if (isModifier) return 'border-border text-muted';
+  // The ring is a darker shade of the fill, not the same hue: on a cap that is
+  // already solid colour, a same-colour ring would carry no geometry at all.
+  if (isTarget)
+    return 'border-highlight bg-highlight text-highlight-fg ring-2 ring-inset ring-highlight-fg/30';
+  if (isModifier) return 'border-transparent bg-key/60 text-muted';
   // Dimmed, not hidden: the physical letter is still worth reading even where
   // the table maps nothing. Deliberately mild -- an unverified table dims the
   // whole diagram too, and the two stack.
-  if (!mapped) return 'border-border text-muted opacity-60';
-  return 'border-border text-fg';
+  if (!mapped) return 'border-transparent bg-key/60 text-muted opacity-60';
+  return 'border-transparent bg-key text-fg';
 }
 
 /**
@@ -134,7 +137,7 @@ export function KeyboardHint({ nextCps, missedCp }: Props) {
     <div
       role="group"
       aria-label="Keyboard hint — NiDA layout"
-      className="border-border bg-surface space-y-4 rounded-lg border p-4"
+      className="card space-y-4 p-4"
     >
       <div className="flex items-baseline justify-between">
         <span className="text-muted text-xs font-semibold tracking-widest uppercase">Hint</span>
@@ -236,8 +239,8 @@ const CARD_CLASS: Record<CardState, string> = {
   // red/green colour blindness, and this card is the only error report left
   // now that the separate correct/incorrect strip is gone.
   missed: 'border-error bg-error/15 text-error',
-  next: 'border-caret bg-caret/10 text-caret ring-1 ring-caret',
-  ahead: 'border-border text-muted',
+  next: 'border-highlight bg-highlight text-highlight-fg ring-1 ring-highlight-fg/30',
+  ahead: 'border-transparent bg-key text-muted',
 };
 
 function KeyCard({

@@ -41,14 +41,13 @@ export function KeyboardInput({ onAction, paused = false, onBlur, onFocus, child
   }
 
   return (
+    // Focus is a ring, not a border: the panel is a shadowed card now, and a
+    // colour-changing border would shift its content box by a pixel on every
+    // focus and blur.
     <div
       onClick={() => input.current?.focus()}
-      className={`cursor-text rounded-lg border p-6 transition-colors ${
-        paused
-          ? 'border-caret/40 bg-surface'
-          : focused
-            ? 'border-caret bg-surface'
-            : 'border-border bg-surface/50'
+      className={`card cursor-text p-6 ring-inset transition-shadow ${
+        paused ? 'ring-caret/40 ring-2' : focused ? 'ring-caret ring-2' : 'ring-0'
       }`}
     >
       {children}

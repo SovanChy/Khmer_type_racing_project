@@ -58,23 +58,23 @@ export function Analytics() {
     };
   }, [ready, sessionsSaved]);
 
-  if (error) {
-    return (
-      <p role="alert" className="text-error text-sm">
-        Could not load your statistics: {error}
-      </p>
-    );
-  }
-  if (!data) return null;
-
-  const empty = data.trend.length === 0;
+  // The heading renders in every state, including "still connecting". This is
+  // its own page now, and returning null for the whole section left that page
+  // as a blank sheet with a footer until the worker answered.
+  const empty = !data || data.trend.length === 0;
 
   return (
     <section className="space-y-6">
       <h2 className="text-sm font-medium">Your progress</h2>
 
-      {empty ? (
-        <p className="text-muted text-sm">
+      {error ? (
+        <p role="alert" className="card text-error p-4 text-sm">
+          Could not load your statistics: {error}
+        </p>
+      ) : !data ? (
+        <p className="card text-muted p-4 text-sm">Reading your local database…</p>
+      ) : empty ? (
+        <p className="card text-muted p-4 text-sm">
           Finish a test and your accuracy, weak clusters and hesitation keys show up here.
         </p>
       ) : (
@@ -174,7 +174,7 @@ function Trend({
   // costume, so show the number instead.
   if (points.length < 2) {
     return (
-      <figure className="border-border rounded-lg border p-4">
+      <figure className="card p-4">
         <figcaption className="text-muted text-xs">
           {title} <span className="opacity-70">· {caption}</span>
         </figcaption>
@@ -198,7 +198,7 @@ function Trend({
   const path = points.map((v, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
 
   return (
-    <figure className="border-border rounded-lg border p-4">
+    <figure className="card p-4">
       <figcaption className="text-muted text-xs">
         {title} <span className="opacity-70">· {caption}</span>
       </figcaption>
@@ -293,7 +293,7 @@ function Ranked({
 }) {
   if (rows.length === 0) {
     return (
-      <figure className="border-border rounded-lg border p-4">
+      <figure className="card p-4">
         <figcaption className="text-muted text-xs">
           {title} <span className="opacity-70">· {caption}</span>
         </figcaption>
@@ -305,7 +305,7 @@ function Ranked({
   const widest = Math.max(...rows.map((r) => r.bar)) || 1;
 
   return (
-    <figure className="border-border rounded-lg border p-4">
+    <figure className="card p-4">
       <figcaption className="text-muted text-xs">
         {title} <span className="opacity-70">· {caption}</span>
       </figcaption>

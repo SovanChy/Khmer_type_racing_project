@@ -117,7 +117,7 @@ export function DataPanel() {
   }
 
   return (
-    <section className="border-border space-y-3 rounded-lg border p-4">
+    <section className="card space-y-3 p-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-sm font-medium">Your data</h2>
         <StatusPill status={status} detail={detail} />

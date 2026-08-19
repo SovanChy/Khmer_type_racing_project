@@ -538,7 +538,7 @@ function ConfigBar({
   const locked = quote !== null;
 
   return (
-    <div className="border-border flex flex-wrap items-center gap-x-4 gap-y-3 rounded-lg border px-3 py-2.5">
+    <div className="card flex flex-wrap items-center gap-x-4 gap-y-3 px-4 py-3">
       <Segmented
         label="time"
         unit="s"
@@ -620,7 +620,7 @@ function Segmented<T extends number>({
       <div
         role="radiogroup"
         aria-label={ariaLabel}
-        className={`bg-border/15 flex items-center gap-0.5 rounded-lg p-0.5 ${disabled ? 'opacity-40' : ''}`}
+        className={`bg-key flex items-center gap-0.5 rounded-lg p-0.5 ${disabled ? 'opacity-40' : ''}`}
       >
         {options.map((value) => {
           const on = selected === value;
@@ -633,7 +633,7 @@ function Segmented<T extends number>({
               disabled={disabled}
               className={`focus-visible:ring-caret cursor-pointer rounded-md px-2.5 py-1 font-mono text-sm tabular-nums transition-colors focus-visible:ring-2 focus-visible:outline-none disabled:cursor-not-allowed ${
                 on
-                  ? 'bg-caret/20 text-fg ring-caret font-semibold ring-1'
+                  ? 'bg-caret text-bg font-semibold'
                   : 'text-muted hover:text-fg'
               }`}
             >
@@ -885,7 +885,7 @@ function Results({
   onRestart: () => void;
 }) {
   return (
-    <div className="border-border bg-surface space-y-4 rounded-lg border p-6">
+    <div className="card space-y-4 p-6">
       <h2 className="text-muted text-sm font-medium">Result</h2>
 
       <dl className="grid grid-cols-2 gap-4 sm:grid-cols-4">

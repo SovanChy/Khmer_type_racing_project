@@ -23,34 +23,82 @@
   --color-caret: var(--caret);
   --color-border: var(--border);
   --color-success: var(--success);
+  --color-key: var(--key);
+  --color-highlight: var(--highlight);
+  --color-highlight-fg: var(--highlight-fg);
 }
 
 :root {
   color-scheme: light;
-  --bg: #ffffff;
-  --surface: #f8fafc;
-  --fg: #0f172a;
-  --muted: #64748b; /* 4.8:1 on white — untyped text still has to be readable */
-  --error: #dc2626; /* 4.8:1 on white */
-  --caret: #16a34a;
-  --border: rgb(15 23 42 / 0.12);
+  /* Panels are white and the page is tinted, not the other way round — the
+     whole layout reads as cards floating on a surface. */
+  --bg: #eceffb;
+  --surface: #ffffff;
+  --fg: #101a33;
+  --muted: #5a6784; /* 5.6:1 on white — untyped text still has to be readable */
+  --error: #d13c3c; /* 4.7:1 on white */
+  --caret: #0b7a5c; /* 5.3:1 on white, so it can carry small text too */
+  --border: rgb(23 37 84 / 0.09);
   /* Not a reuse of --caret: caret is a UI accent (focus rings, chips, the
      caret bar), correct-text is a semantic state. Keeping them separate lets
      the caret bar stay visually distinguishable sitting inside a run of
      correct (green) text instead of disappearing into it. */
   --success: #15803d;
+  /* Keycap fill on a white panel. A key needs to read as a raised object
+     without an outline heavy enough to make the diagram look like a table. */
+  --key: #edf0fc;
+  /* The key you are being told to press. Yellow, not the accent green: the
+     accent already means "correct" everywhere else, and the hint is an
+     instruction, not a verdict. */
+  --highlight: #f8cf5c;
+  --highlight-fg: #5c3d00; /* 6.6:1 on --highlight */
+  --shadow: 0 1px 2px rgb(23 37 84 / 0.05), 0 10px 30px -16px rgb(23 37 84 / 0.25);
 }
 
 .dark {
   color-scheme: dark;
-  --bg: #0f172a;
-  --surface: #1e293b;
-  --fg: #f8fafc;
-  --muted: #94a3b8; /* ~7:1 on the dark background */
-  --error: #f87171; /* #dc2626 is too dark to read on #0f172a */
-  --caret: #22c55e;
-  --border: rgb(248 250 252 / 0.1);
+  --bg: #0b1020;
+  --surface: #151c30;
+  --fg: #eef2ff;
+  --muted: #96a3bf; /* ~7:1 on the dark surface */
+  --error: #f87171; /* #d13c3c is too dark to read here */
+  --caret: #2fd39f;
+  --border: rgb(226 232 240 / 0.1);
   --success: #4ade80;
+  --key: #1e2740;
+  --highlight: #f5c445;
+  --highlight-fg: #2b1d00;
+  /* Elevation reads as a lift out of the page, which a drop shadow cannot do
+     on a dark ground — a hairline does it instead. */
+  --shadow: 0 0 0 1px rgb(226 232 240 / 0.06);
+}
+
+/* Every panel in the app: white, soft, borderless. One utility so a panel is
+   never re-described in six components. */
+@utility card {
+  background-color: var(--surface);
+  border-radius: 1rem;
+  box-shadow: var(--shadow);
+}
+
+/* Switching sections toggles `display`, which restarts this animation — so the
+   incoming panel arrives instead of appearing mid-page fully formed. Short
+   enough not to be a wait. */
+@utility fade-in {
+  animation: fade-in 160ms ease-out;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fade-in {
+    animation: none;
+  }
 }
 
 body {
