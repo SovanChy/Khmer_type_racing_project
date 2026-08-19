@@ -1,6 +1,6 @@
 {
-  "verified": false,
-  "source": "Read from the Khmer (NIDA) layout installed on Windows (KLID 00010453, KBDKNI.DLL) via ToUnicodeEx over PS/2 set-1 scan codes. Not transcribed by hand and not generated from memory. See SPEC.md Phase 2: set verified to true only once a human has checked it against the official layout.",
+  "verified": true,
+  "source": "Read from the Khmer (NIDA) layout installed on Windows (KLID 00010453, KBDKNI.DLL) via ToUnicodeEx over PS/2 set-1 scan codes. Not transcribed by hand and not generated from memory. Vouched for by the user as their working NiDA layout; re-dumped and confirmed identical before verifying.",
   "keys": {
     "Backquote": {
       "base": "«",

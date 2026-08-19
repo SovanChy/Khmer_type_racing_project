@@ -34,10 +34,12 @@ const altGr = (over: Partial<KeyEventLike>): KeyEventLike =>
   ev({ ctrlKey: true, altKey: true, getModifierState: (k) => k === 'AltGraph', ...over });
 
 describe('nida.json', () => {
-  it('is marked unverified until the real NiDA layout is supplied', () => {
-    // Flipping this to true is the deliberate act of vouching for the table.
-    // If this test fails, the table was verified — delete this test.
-    expect(NIDA.verified).toBe(false);
+  it('stays verified', () => {
+    // Was `toBe(false)` with instructions to delete it once a human vouched.
+    // Inverted rather than deleted: the flag silently flipping back to false
+    // would quietly re-enable the "do not practise on this" banner, and that
+    // should fail a test rather than be noticed by eye.
+    expect(NIDA.verified).toBe(true);
   });
 
   it('maps only key positions that can produce a character', () => {
