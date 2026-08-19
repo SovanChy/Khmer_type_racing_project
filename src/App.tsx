@@ -14,7 +14,7 @@ const MODES: { value: InputMode; label: string; hint: string }[] = [
 const chip = (selected: boolean) =>
   `cursor-pointer rounded-md border px-3 py-1.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-caret ${
     selected
-      ? 'border-caret bg-caret/10 text-caret'
+      ? 'border-caret bg-caret/15 text-fg font-semibold'
       : 'border-border text-muted hover:text-fg hover:border-fg/30'
   }`;
 

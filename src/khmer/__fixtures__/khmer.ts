@@ -22,6 +22,7 @@ export const CP = {
   SRA_AE: 'ែ', // U+17C2 KHMER VOWEL SIGN AE
   NIKAHIT: 'ំ', // U+17C6 KHMER SIGN NIKAHIT
   COENG: '្', // U+17D2 KHMER SIGN COENG — never stands alone in valid text
+  KHAN: '។', // U+17D4 KHMER SIGN KHAN — the full stop of Khmer prose
   DIGIT_ONE: '១', // U+17E1 KHMER DIGIT ONE
   ZWSP: '​', // U+200B ZERO WIDTH SPACE — word separator in well-encoded Khmer
 } as const;
@@ -40,6 +41,7 @@ export const CODEPOINTS: Record<keyof typeof CP, number> = {
   SRA_AE: 0x17c2,
   NIKAHIT: 0x17c6,
   COENG: 0x17d2,
+  KHAN: 0x17d4,
   DIGIT_ONE: 0x17e1,
   ZWSP: 0x200b,
 };

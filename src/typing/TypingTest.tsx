@@ -1,5 +1,21 @@
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { buildDrillPassage, buildPassage, loadCorpus, type CorpusEntry } from '../corpus';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
+import {
+  buildDrillPassage,
+  buildPassage,
+  loadCorpus,
+  MAX_QUOTE_WORDS,
+  parseQuote,
+  type CorpusEntry,
+  type ParsedQuote,
+} from '../corpus';
 import { HINT_KEYS, KeyboardHint } from '../keyboard/KeyboardHint';
 import { KeyboardInput } from '../keyboard/KeyboardInput';
 import type { KeyAction } from '../keyboard/nida';
@@ -87,6 +103,8 @@ export function TypingTest() {
   const noteSessionSaved = useStore((s) => s.noteSessionSaved);
   const showKeyboard = useStore((s) => s.showKeyboard);
   const setShowKeyboard = useStore((s) => s.setShowKeyboard);
+  const quote = useStore((s) => s.quote);
+  const setQuote = useStore((s) => s.setQuote);
   const [corpus, setCorpus] = useState<CorpusEntry[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [config, setConfig] = useState<TestConfig>({ kind: 'time', seconds: 30 });
@@ -120,6 +138,10 @@ export function TypingTest() {
 
   const [drill, setDrill] = useState(false);
 
+  // R3: parsed once per quote, not once per restart — the strip/count shown in
+  // the config bar and the passage itself must come from the same parse.
+  const parsedQuote = useMemo(() => (quote === null ? null : parseQuote(quote)), [quote]);
+
   // The passage is a fixed-height window (see the JSX); this keeps the active
   // word inside it. A DOM query rather than React state on purpose: scrolling
   // is not something any component renders from, and routing it through state
@@ -146,7 +168,7 @@ export function TypingTest() {
   }, []);
 
   const restart = useCallback(() => {
-    if (!corpus) return;
+    if (!parsedQuote && !corpus) return;
     typed.current = [];
     stats.current = freshStats();
     keystrokes.current = [];
@@ -155,13 +177,19 @@ export function TypingTest() {
     setPaused(false);
     setSaveState(undefined);
 
-    const count = config.kind === 'words' ? config.count : TIMED_PASSAGE_WORDS;
-    setWords(
-      drill ? buildDrillPassage(corpus, weights.current, count) : buildPassage(corpus, count),
-    );
+    if (parsedQuote) {
+      // R3: the quote IS the passage. Its length is whatever the user pasted,
+      // so the time/word presets do not apply — see the countdown effect.
+      setWords(parsedQuote.words);
+    } else if (corpus) {
+      const count = config.kind === 'words' ? config.count : TIMED_PASSAGE_WORDS;
+      setWords(
+        drill ? buildDrillPassage(corpus, weights.current, count) : buildPassage(corpus, count),
+      );
+    }
     setCaret(0);
     setPhase('idle');
-  }, [corpus, config, drill]);
+  }, [corpus, config, drill, parsedQuote]);
 
   // Also fires when the corpus arrives or the config changes, which is exactly
   // when a fresh passage is wanted.
@@ -193,7 +221,10 @@ export function TypingTest() {
   // the original duration — is what gets scheduled, and nothing is scheduled
   // at all while paused.
   useEffect(() => {
-    if (phase !== 'running' || config.kind !== 'time' || paused) return;
+    // A quote ends when its last codepoint is typed (see handleAction), so no
+    // countdown runs against it — cutting a quote off mid-sentence at 30s is
+    // the opposite of what "type this article" means.
+    if (phase !== 'running' || config.kind !== 'time' || paused || quote !== null) return;
     const elapsed = elapsedMs({
       startedAt: stats.current.startedAt,
       endedAt: performance.now(),
@@ -210,7 +241,7 @@ export function TypingTest() {
       setPhase('done');
     }, remaining);
     return () => clearTimeout(id);
-  }, [phase, config, paused]);
+  }, [phase, config, paused, quote]);
 
   /** Blur pauses a running test — see the `Stats.pausedMs` comment for why. */
   function handleInputBlur() {
@@ -375,6 +406,9 @@ export function TypingTest() {
         onDrillChange={setDrill}
         showKeyboard={showKeyboard}
         onShowKeyboardChange={setShowKeyboard}
+        quote={quote}
+        parsed={parsedQuote}
+        onQuoteChange={setQuote}
       />
 
       <LiveStats
@@ -389,6 +423,7 @@ export function TypingTest() {
         paused={paused}
         caret={caret}
         totalCps={targetCps.length}
+        quoteMode={quote !== null}
       />
 
       {/*
@@ -518,6 +553,9 @@ function ConfigBar({
   onDrillChange,
   showKeyboard,
   onShowKeyboardChange,
+  quote,
+  parsed,
+  onQuoteChange,
 }: {
   config: TestConfig;
   onChange: (config: TestConfig) => void;
@@ -525,64 +563,250 @@ function ConfigBar({
   onDrillChange: (drill: boolean) => void;
   showKeyboard: boolean;
   onShowKeyboardChange: (show: boolean) => void;
+  quote: string | null;
+  parsed: ParsedQuote | null;
+  onQuoteChange: (quote: string | null) => void;
 }) {
-  const chip = (selected: boolean) =>
-    `cursor-pointer rounded-md px-2.5 py-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-caret ${
-      selected ? 'bg-caret/15 text-caret' : 'text-muted hover:text-fg'
-    }`;
+  // A pasted quote is its own length and its own text, so neither a duration,
+  // a word count nor a drill weighting has anything left to act on.
+  const locked = quote !== null;
 
   return (
-    <div className="border-border flex flex-wrap items-center gap-x-5 gap-y-2 rounded-md border px-3 py-2 font-mono text-sm">
-      <div role="radiogroup" aria-label="Timed test length" className="flex items-center gap-1">
-        <span className="text-muted mr-1 text-xs">time</span>
-        {TIME_PRESETS.map((seconds) => (
-          <button
-            key={seconds}
-            role="radio"
-            aria-checked={config.kind === 'time' && config.seconds === seconds}
-            onClick={() => onChange({ kind: 'time', seconds })}
-            className={chip(config.kind === 'time' && config.seconds === seconds)}
-          >
-            {seconds}
-          </button>
-        ))}
-      </div>
+    <div className="border-border flex flex-wrap items-center gap-x-4 gap-y-3 rounded-lg border px-3 py-2.5">
+      <Segmented
+        label="time"
+        unit="s"
+        ariaLabel="Timed test length"
+        options={TIME_PRESETS}
+        selected={config.kind === 'time' ? config.seconds : null}
+        onSelect={(seconds) => onChange({ kind: 'time', seconds })}
+        disabled={locked}
+      />
 
-      <div role="radiogroup" aria-label="Word count test length" className="flex items-center gap-1">
-        <span className="text-muted mr-1 text-xs">words</span>
-        {WORD_PRESETS.map((count) => (
-          <button
-            key={count}
-            role="radio"
-            aria-checked={config.kind === 'words' && config.count === count}
-            onClick={() => onChange({ kind: 'words', count })}
-            className={chip(config.kind === 'words' && config.count === count)}
-          >
-            {count}
-          </button>
-        ))}
-      </div>
+      <Segmented
+        label="words"
+        ariaLabel="Word count test length"
+        options={WORD_PRESETS}
+        selected={config.kind === 'words' ? config.count : null}
+        onSelect={(count) => onChange({ kind: 'words', count })}
+        disabled={locked}
+      />
 
-      <button
-        role="switch"
-        aria-checked={drill}
-        onClick={() => onDrillChange(!drill)}
+      <span aria-hidden className="bg-border hidden h-7 w-px sm:block" />
+
+      <Toggle
+        checked={drill}
+        onChange={() => onDrillChange(!drill)}
+        disabled={locked}
         title="Draw sentences that are denser in the clusters you get wrong"
-        className={chip(drill)}
       >
         drill
-      </button>
+      </Toggle>
 
-      <button
-        role="switch"
-        aria-checked={showKeyboard}
-        onClick={() => onShowKeyboardChange(!showKeyboard)}
+      <Toggle
+        checked={showKeyboard}
+        onChange={() => onShowKeyboardChange(!showKeyboard)}
         title="Show an on-screen keyboard diagram of the next key to press"
-        className={chip(showKeyboard)}
       >
         keyboard
-      </button>
+      </Toggle>
+
+      <QuoteControl quote={quote} parsed={parsed} onQuoteChange={onQuoteChange} />
     </div>
+  );
+}
+
+/**
+ * A pick-one group, drawn as a segmented control on a recessed track.
+ *
+ * The three control kinds in this bar (pick-one, on/off, action) used to share
+ * one chip style, which made the bar unreadable — you could not tell what a
+ * button would DO from looking at it. Each now has its own shape: this one is
+ * a group of segments sharing a track, so it reads as a set of alternatives.
+ *
+ * Text stays `--fg` on the selected segment rather than switching to the green
+ * accent: the accent carries the "this one" meaning through the tint and ring,
+ * while the label keeps full contrast. Green-on-white is only ~3.6:1, under the
+ * 4.5:1 small text needs.
+ */
+function Segmented<T extends number>({
+  label,
+  unit = '',
+  ariaLabel,
+  options,
+  selected,
+  onSelect,
+  disabled,
+}: {
+  label: string;
+  unit?: string;
+  ariaLabel: string;
+  options: readonly T[];
+  selected: T | null;
+  onSelect: (value: T) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-muted text-[11px] font-semibold tracking-widest uppercase">
+        {label}
+      </span>
+      <div
+        role="radiogroup"
+        aria-label={ariaLabel}
+        className={`bg-border/15 flex items-center gap-0.5 rounded-lg p-0.5 ${disabled ? 'opacity-40' : ''}`}
+      >
+        {options.map((value) => {
+          const on = selected === value;
+          return (
+            <button
+              key={value}
+              role="radio"
+              aria-checked={on}
+              onClick={() => onSelect(value)}
+              disabled={disabled}
+              className={`focus-visible:ring-caret cursor-pointer rounded-md px-2.5 py-1 font-mono text-sm tabular-nums transition-colors focus-visible:ring-2 focus-visible:outline-none disabled:cursor-not-allowed ${
+                on
+                  ? 'bg-caret/20 text-fg ring-caret font-semibold ring-1'
+                  : 'text-muted hover:text-fg'
+              }`}
+            >
+              {value}
+              {unit}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * An on/off switch. `role="switch"` already said so to a screen reader; the
+ * dot is what says it to everyone else — a filled dot for on, a hollow ring
+ * for off, so the state survives greyscale and colour blindness instead of
+ * resting on a green tint alone.
+ */
+function Toggle({
+  checked,
+  onChange,
+  disabled,
+  title,
+  children,
+}: {
+  checked: boolean;
+  onChange: () => void;
+  disabled?: boolean;
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      role="switch"
+      aria-checked={checked}
+      onClick={onChange}
+      disabled={disabled}
+      title={title}
+      className={`focus-visible:ring-caret flex cursor-pointer items-center gap-2 rounded-full border px-3 py-1 font-mono text-sm transition-colors focus-visible:ring-2 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-40 ${
+        checked ? 'border-caret text-fg' : 'border-border text-muted hover:text-fg'
+      }`}
+    >
+      <span
+        aria-hidden
+        className={`h-2 w-2 shrink-0 rounded-full ${
+          checked ? 'bg-caret' : 'border-muted border bg-transparent'
+        }`}
+      />
+      {children}
+    </button>
+  );
+}
+
+/**
+ * R3: paste your own text to type instead of the corpus.
+ *
+ * A native `<details>` rather than a boolean in state — the browser already
+ * owns "is this panel open", and the summary is styled as a chip so it reads
+ * as a fourth mode in the config row rather than something tucked away.
+ *
+ * The textarea has no `onKeyDown` and no remap: it is an ordinary paste
+ * target, so the typing input stays the only surface in the app that captures
+ * keystrokes. See the input-handler rule in CLAUDE.md.
+ */
+function QuoteControl({
+  quote,
+  parsed,
+  onQuoteChange,
+}: {
+  quote: string | null;
+  parsed: ParsedQuote | null;
+  onQuoteChange: (quote: string | null) => void;
+}) {
+  const [draft, setDraft] = useState(quote ?? '');
+
+  return (
+    <details className="w-full">
+      {/*
+        The only action in a bar of settings, so it gets the third and last
+        visual language: a dashed "+" outline, the conventional "add content
+        here" affordance, sharing nothing with the segments or the switches.
+        Deliberately NOT filled with the green accent — that accent means
+        "selected" everywhere else in this bar, and white on it is only ~4:1.
+        The solid commit button lives inside the panel, one step later.
+      */}
+      <summary className="border-border hover:border-fg/30 focus-visible:ring-caret text-fg -mx-1 flex w-fit cursor-pointer list-none items-center gap-2 rounded-lg border-2 border-dashed px-3 py-1.5 text-sm font-semibold transition-colors focus-visible:ring-2 focus-visible:outline-none">
+        <span aria-hidden className="text-base leading-none">+</span>
+        {quote === null ? 'Insert your own text' : 'Your own text'}
+        {quote !== null && (
+          <span className="bg-caret/20 text-fg ring-caret rounded-full px-2 py-0.5 font-mono text-xs ring-1">
+            in use
+          </span>
+        )}
+      </summary>
+
+      <div className="mt-2 space-y-2">
+        <textarea
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          rows={4}
+          placeholder="Paste a quote — a newspaper paragraph, anything in Khmer."
+          aria-label="Your own text to type"
+          lang="km"
+          className="font-khmer border-border bg-surface text-fg focus-visible:border-caret block w-full rounded-md border p-3 text-base outline-none"
+        />
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Primary and secondary, not two identical buttons: one of these
+              replaces your passage and the other throws it away. */}
+          <button
+            onClick={() => onQuoteChange(draft.trim().length > 0 ? draft : null)}
+            disabled={draft.trim().length === 0}
+            className="bg-fg text-bg focus-visible:ring-caret cursor-pointer rounded-lg px-4 py-1.5 text-sm font-semibold transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-30"
+          >
+            Use this text
+          </button>
+          {quote !== null && (
+            <button
+              onClick={() => {
+                setDraft('');
+                onQuoteChange(null);
+              }}
+              className="text-muted hover:text-fg focus-visible:ring-caret cursor-pointer rounded-lg px-2 py-1.5 text-sm underline underline-offset-4 focus-visible:ring-2 focus-visible:outline-none"
+            >
+              Back to corpus
+            </button>
+          )}
+          {parsed && (
+            // Never let a silent strip go unreported: the passage differs from
+            // what was pasted, and the user is entitled to know why.
+            <span className="text-muted text-xs">
+              {parsed.words.length} words
+              {parsed.removed > 0 && ` · ${parsed.removed} characters NiDA cannot type removed`}
+              {parsed.truncated && ` · truncated to ${MAX_QUOTE_WORDS} words`}
+            </span>
+          )}
+        </div>
+      </div>
+    </details>
   );
 }
 
@@ -603,6 +827,7 @@ function LiveStats({
   paused,
   caret,
   totalCps,
+  quoteMode,
 }: {
   phase: Phase;
   config: TestConfig;
@@ -615,6 +840,8 @@ function LiveStats({
   paused: boolean;
   caret: number;
   totalCps: number;
+  /** A quote ends when it runs out, so there is no countdown to display. */
+  quoteMode: boolean;
 }) {
   const [, tick] = useReducer((n: number) => n + 1, 0);
 
@@ -632,7 +859,7 @@ function LiveStats({
 
   const progress = paused
     ? 'paused'
-    : config.kind === 'time'
+    : config.kind === 'time' && !quoteMode
       ? `${Math.max(0, Math.ceil(config.seconds - ms / 1000))}s`
       : `${caret}/${totalCps}`;
 

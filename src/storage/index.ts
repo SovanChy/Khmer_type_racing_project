@@ -37,7 +37,16 @@ export interface Settings {
   inputMode: InputMode;
   theme: Theme;
   showKeyboard: boolean;
+  /** Text the user pasted to type instead of the corpus, or null for corpus. */
+  quote: string | null;
 }
+
+/**
+ * Ceiling on a stored quote, in characters. localStorage is a shared ~5MB
+ * budget for the whole origin; a pasted book would evict the settings it
+ * shares a key with. Far more than MAX_QUOTE_WORDS needs.
+ */
+const MAX_QUOTE_CHARS = 20_000;
 
 const SETTINGS_KEY = 'knt.settings';
 // Written by the removed learn-as-you-type layout feature. Kept only so that
@@ -54,7 +63,7 @@ function systemTheme(): Theme {
 
 export function defaultSettings(): Settings {
   // Remap is the default input mode because it needs nothing installed.
-  return { inputMode: 'remap', theme: systemTheme(), showKeyboard: true };
+  return { inputMode: 'remap', theme: systemTheme(), showKeyboard: true, quote: null };
 }
 
 export function loadSettings(): Settings {
@@ -73,6 +82,12 @@ export function loadSettings(): Settings {
       theme: stored?.theme === 'light' || stored?.theme === 'dark' ? stored.theme : defaults.theme,
       showKeyboard:
         typeof stored?.showKeyboard === 'boolean' ? stored.showKeyboard : defaults.showKeyboard,
+      // Truncated rather than rejected: a hand-edited or half-written value
+      // should cost the user the tail of a quote, not their whole passage.
+      quote:
+        typeof stored?.quote === 'string' && stored.quote.length > 0
+          ? stored.quote.slice(0, MAX_QUOTE_CHARS)
+          : defaults.quote,
     };
   } catch {
     // Private-window Safari and locked-down browsers throw on access, and a

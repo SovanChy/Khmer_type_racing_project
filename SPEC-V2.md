@@ -138,7 +138,7 @@ Also, when typed wrong, show what should be the correct placement on the keyboar
 
 ### R3 — 
 
-Allow me to enter quote that I copy and paste from somewhere else. I want to test out some newspaper quote, so I can copy it and test typing it out on the website. This includes proper spacing កើត ទេ which the keyboard  should recognize in R2
+Allow me to enter quote that I copy and paste from somewhere else. I want to test out some newspaper quote, so I can copy it and test typing it out on the website. This includes proper spacing កើត ទេ instead of no spacing at all
 
 reason: help the user type what type of quote they want to type
 
