@@ -23,6 +23,7 @@ import {
   countCorrectClusters,
   countCorrectCodepoints,
   elapsedMs,
+  endReason,
   score,
   targetSites,
   wordProps,
@@ -370,6 +371,14 @@ export function TypingTest() {
 
   const currentWordProps = wordProps(words, typed.current, caret);
 
+  // R5: why the run stopped. Derived, not stored — see `endReason`.
+  const ended = endReason(
+    phase === 'done',
+    config.kind === 'time' && quote === null,
+    caret,
+    targetCps.length,
+  );
+
   // The character the last keypress should have produced but didn't. Read
   // straight off the buffer rather than kept in state: the caret already
   // re-renders this component every keystroke, so deriving it costs nothing
@@ -440,6 +449,7 @@ export function TypingTest() {
       <KeyboardInput
         onAction={handleAction}
         paused={paused}
+        ended={ended}
         onBlur={handleInputBlur}
         onFocus={handleInputFocus}
       >
@@ -455,9 +465,15 @@ export function TypingTest() {
           multiplier is the `leading` value: 3 lines exactly, whatever the
           breakpoint. Changing one without the other silently clips a line.
         */}
+        {/*
+          Dimmed once the run is over: the passage is the thing being stared
+          at, so it is the thing that has to stop looking live.
+        */}
         <p
           ref={passage}
-          className="font-khmer h-[6.6em] overflow-hidden text-2xl leading-[2.2] sm:text-3xl"
+          className={`font-khmer h-[6.6em] overflow-hidden text-2xl leading-[2.2] sm:text-3xl ${
+            ended ? 'opacity-50' : ''
+          }`}
           lang="km"
         >
           {currentWordProps.map((props, i) => (
@@ -484,8 +500,10 @@ export function TypingTest() {
 
       {showKeyboard && (
         <KeyboardHint
-          nextCps={sites.slice(caret, caret + HINT_KEYS).map((s) => s.codepoint)}
-          missedCp={missedCp}
+          // Nothing is "next" once the run is over. A diagram still lighting up
+          // a key you can no longer type is the same lie the input was telling.
+          nextCps={ended ? [] : sites.slice(caret, caret + HINT_KEYS).map((s) => s.codepoint)}
+          missedCp={ended ? null : missedCp}
         />
       )}
       </div>
@@ -906,7 +924,16 @@ function Results({
       </p>
 
       <div className="flex flex-wrap items-center gap-4">
+        {/*
+          R5: this panel mounts below the passage and, on a wide screen, below
+          the keyboard diagram — i.e. off the bottom of the window, which is
+          why a finished run could go unnoticed. Taking focus scrolls it into
+          view, pulls focus out of the input that is no longer recording, and
+          puts Enter on "go again". Only ever on mount, and only for a run the
+          user just finished themselves.
+        */}
         <button
+          autoFocus
           onClick={onRestart}
           className="bg-caret/15 text-caret hover:bg-caret/25 focus-visible:ring-caret cursor-pointer rounded-md px-4 py-2 text-sm transition-colors focus-visible:ring-2 focus-visible:outline-none"
         >

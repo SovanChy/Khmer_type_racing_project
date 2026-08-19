@@ -239,3 +239,24 @@ export function score({
     accuracy: totalPresses > 0 ? correctPresses / totalPresses : 1,
   };
 }
+
+/**
+ * R5: why a finished run stopped, or null while it is still live.
+ *
+ * A timed run that stopped with the caret short of the end of its passage ran
+ * out of clock; anything else typed its way to the end. Derived from state
+ * that already exists rather than recorded when the timer fires — one less
+ * thing that can disagree with `phase`.
+ *
+ * `timed` is false for a word-count run and for a pasted quote, neither of
+ * which runs a countdown at all.
+ */
+export function endReason(
+  done: boolean,
+  timed: boolean,
+  caret: number,
+  totalCps: number,
+): 'time' | 'passage' | null {
+  if (!done) return null;
+  return timed && caret < totalCps ? 'time' : 'passage';
+}

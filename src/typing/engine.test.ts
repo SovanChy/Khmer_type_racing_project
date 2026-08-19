@@ -5,6 +5,7 @@ import {
   countCorrectClusters,
   countCorrectCodepoints,
   elapsedMs,
+  endReason,
   score,
   targetSites,
   toWords,
@@ -352,3 +353,23 @@ describe('score', () => {
   });
 });
 
+
+describe('endReason', () => {
+  it('is null while the run is still live', () => {
+    expect(endReason(false, true, 3, 100)).toBe(null);
+  });
+
+  it('blames the clock when a timed run stops short of the passage', () => {
+    expect(endReason(true, true, 42, 750)).toBe('time');
+  });
+
+  it('blames the passage when the last codepoint was typed', () => {
+    expect(endReason(true, true, 750, 750)).toBe('passage');
+  });
+
+  it('never blames the clock when nothing was counting down', () => {
+    // Word-count runs and pasted quotes have no countdown, so a short caret
+    // cannot mean "time ran out" — only the passage can end them.
+    expect(endReason(true, false, 42, 750)).toBe('passage');
+  });
+});

@@ -1,4 +1,4 @@
-import { useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { useStore } from '../store';
 import { resolveKey, type KeyAction } from './nida';
 
@@ -6,6 +6,13 @@ interface Props {
   onAction: (action: KeyAction) => void;
   /** True while a running test is paused because this input lost focus. */
   paused?: boolean;
+  /**
+   * Why the run is over, or null while it is still live. R5: the input has to
+   * say this itself. A finished run used to look exactly like a running one —
+   * same ring, same caret, still focused — so keystrokes went nowhere with no
+   * indication that they were being dropped.
+   */
+  ended?: 'time' | 'passage' | null;
   /** Fires after the input loses focus — the caller uses this to pause a running test. */
   onBlur?: () => void;
   /** Fires after the input regains focus — the caller uses this to resume. */
@@ -24,10 +31,24 @@ interface Props {
  * clicks or tabs into it, and the field must be visible so they can see when
  * keystrokes are being recorded. See CLAUDE.md and SECURITY-REVIEW.md §10.
  */
-export function KeyboardInput({ onAction, paused = false, onBlur, onFocus, children }: Props) {
+export function KeyboardInput({
+  onAction,
+  paused = false,
+  ended = null,
+  onBlur,
+  onFocus,
+  children,
+}: Props) {
   const inputMode = useStore((s) => s.inputMode);
   const input = useRef<HTMLInputElement>(null);
   const [focused, setFocused] = useState(false);
+
+  // Drop focus the moment the run ends. Keystrokes are ignored from here on,
+  // and a field that still looks live while swallowing everything typed into
+  // it is the whole complaint R5 is about.
+  useEffect(() => {
+    if (ended) input.current?.blur();
+  }, [ended]);
 
   function handleKeyDown(e: KeyboardEvent<HTMLInputElement>) {
     const action = resolveKey(e, inputMode);
@@ -47,7 +68,13 @@ export function KeyboardInput({ onAction, paused = false, onBlur, onFocus, child
     <div
       onClick={() => input.current?.focus()}
       className={`card cursor-text p-6 ring-inset transition-shadow ${
-        paused ? 'ring-caret/40 ring-2' : focused ? 'ring-caret ring-2' : 'ring-0'
+        ended
+          ? 'ring-highlight ring-2'
+          : paused
+            ? 'ring-caret/40 ring-2'
+            : focused
+              ? 'ring-caret ring-2'
+              : 'ring-0'
       }`}
     >
       {children}
@@ -77,7 +104,20 @@ export function KeyboardInput({ onAction, paused = false, onBlur, onFocus, child
         }`}
       />
 
-      {paused ? (
+      {/*
+        One `<p>` in one position across every branch, so a screen reader sees
+        this live region change text rather than a region appearing — which is
+        the difference between an announcement and silence.
+      */}
+      {ended ? (
+        <p
+          role="status"
+          className="bg-highlight text-highlight-fg mt-2 rounded-md px-3 py-2 text-sm font-semibold"
+        >
+          {ended === 'time' ? "Time's up." : 'Passage finished.'} This run is over — keystrokes are
+          no longer counted. Your result is below.
+        </p>
+      ) : paused ? (
         <p role="status" className="text-caret mt-2 flex items-center gap-2 text-sm font-medium">
           <span className="bg-caret h-2 w-2 rounded-full" aria-hidden />
           Paused — click here, or Tab to it, to resume.
