@@ -765,6 +765,24 @@ function QuoteControl({
       </summary>
 
       <div className="mt-2 space-y-2">
+        {/*
+          Placed above the textarea, not below it: a caution under the box is
+          read after the paste it was meant to prevent.
+
+          It says what actually happens rather than only disclaiming, because
+          the concrete fact is the part that changes behaviour — pasted text
+          and the keystrokes typed against it are written to this browser's
+          local database, so anyone with the device can read them back.
+        */}
+        <p className="border-border text-muted border-l-2 py-0.5 pl-3 text-xs">
+          <strong className="text-fg font-semibold">Don&apos;t paste anything private.</strong> Your
+          text, and every keystroke you type against it, are saved to this browser&apos;s local
+          database so your results survive a reload. Nothing is uploaded anywhere, but anyone who
+          can use this device or browser profile can read it — clear it with{' '}
+          <span className="whitespace-nowrap">&ldquo;Clear all my data&rdquo;</span> below. You are
+          responsible for what you paste; this trainer is provided as-is, with no warranty.
+        </p>
+
         <textarea
           value={draft}
           onChange={(e) => setDraft(e.target.value)}

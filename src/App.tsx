@@ -110,6 +110,26 @@ export function App() {
       <TypingTest />
       <Analytics />
       <DataPanel />
+
+      {/*
+        Says what the app does with what you type, in the one place a person
+        looks for it. Deliberately states the mechanism ("stays in this
+        browser") rather than only a disclaimer — the mechanism is the part
+        that is actually true and actually protective.
+      */}
+      <footer className="border-border text-muted space-y-1 border-t pt-6 text-xs">
+        <p>
+          No accounts, no analytics, no telemetry. Everything you type, paste and store stays in
+          this browser — use &ldquo;Clear all my data&rdquo; above to delete it. Whoever hosts this
+          page keeps ordinary web-server access logs, which contain none of it.
+        </p>
+        <p>
+          Please don&apos;t enter private, confidential or otherwise sensitive text. Anything you
+          enter is at your own risk and remains your responsibility. This trainer is provided
+          as-is, without warranty of any kind and with no liability for how it is used.
+        </p>
+        <p>© 2026 SovanChy. All rights reserved.</p>
+      </footer>
     </main>
   );
 }
