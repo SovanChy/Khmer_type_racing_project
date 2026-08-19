@@ -15,9 +15,12 @@ export const CP = {
   NO: 'ន', // U+1793 KHMER LETTER NO
   PHO: 'ភ', // U+1797 KHMER LETTER PHO
   MO: 'ម', // U+1798 KHMER LETTER MO
+  DA: 'ដ', // U+178A KHMER LETTER DA
+  TA: 'ត', // U+178F KHMER LETTER TA
   RO: 'រ', // U+179A KHMER LETTER RO
   SA: 'ស', // U+179F KHMER LETTER SA
   SRA_AA: 'ា', // U+17B6 KHMER VOWEL SIGN AA
+  SRA_UA: 'ួ', // U+17BD KHMER VOWEL SIGN UA
   SRA_II: 'ី', // U+17B8 KHMER VOWEL SIGN II
   SRA_AE: 'ែ', // U+17C2 KHMER VOWEL SIGN AE
   NIKAHIT: 'ំ', // U+17C6 KHMER SIGN NIKAHIT
@@ -34,9 +37,12 @@ export const CODEPOINTS: Record<keyof typeof CP, number> = {
   NO: 0x1793,
   PHO: 0x1797,
   MO: 0x1798,
+  DA: 0x178a,
+  TA: 0x178f,
   RO: 0x179a,
   SA: 0x179f,
   SRA_AA: 0x17b6,
+  SRA_UA: 0x17bd,
   SRA_II: 0x17b8,
   SRA_AE: 0x17c2,
   NIKAHIT: 0x17c6,
@@ -133,3 +139,12 @@ export const CLUSTER_CASES: ReadonlyArray<{
     clusters: [CP.KA, CP.COENG],
   },
 ];
+
+/**
+ * The same word spelled with each subscript that Chuon Nath treats as
+ * interchangeable: សួស្ដី (coeng ដ, the dictionary's spelling) against
+ * សួស្តី (coeng ត, what a modern keyboard produces). See `foldWord`.
+ */
+const HELLO_STEM = CP.SA + CP.SRA_UA + CP.SA;
+export const HELLO_COENG_DA = HELLO_STEM + CP.COENG + CP.DA + CP.SRA_II;
+export const HELLO_COENG_TA = HELLO_STEM + CP.COENG + CP.TA + CP.SRA_II;

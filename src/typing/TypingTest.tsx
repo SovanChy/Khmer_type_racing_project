@@ -5,6 +5,7 @@ import {
   useReducer,
   useRef,
   useState,
+  type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from 'react';
 import {
@@ -33,6 +34,8 @@ import {
 import { Word, wordRenders } from './Word';
 import { saveSession, worstClusters, type KeystrokeRecord } from '../storage';
 import { useStore } from '../store';
+import { Definition } from '../dict/Definition';
+import { foldWord } from '../dict';
 
 /**
  * How hard drill mode leans on weak clusters, against a baseline weight of 1
@@ -117,6 +120,9 @@ export function TypingTest() {
   const pauseStartedAt = useRef<number | null>(null);
 
   const [drill, setDrill] = useState(false);
+
+  /** R4: the word whose definition is open, or null. */
+  const [definition, setDefinition] = useState<string | null>(null);
 
   // R3: parsed once per quote, not once per restart — the strip/count shown in
   // the config bar and the passage itself must come from the same parse.
@@ -222,6 +228,21 @@ export function TypingTest() {
     }, remaining);
     return () => clearTimeout(id);
   }, [phase, config, paused, quote]);
+
+  /**
+   * R4: open the dictionary on the word that was clicked.
+   *
+   * Deliberately does not stop the click from reaching the input card, which
+   * focuses the typing field — looking a word up mid-run must not cost the
+   * user their focus, and therefore must not pause the run.
+   */
+  function handleWordClick(e: ReactMouseEvent<HTMLParagraphElement>) {
+    const hit = (e.target as HTMLElement).closest('[data-word]');
+    const word = hit?.getAttribute('data-word');
+    // A passage word can be bare punctuation — `។` is its own word. There is
+    // nothing to look up, so open nothing rather than a panel saying so.
+    if (word && foldWord(word) !== '') setDefinition(word);
+  }
 
   /** Blur pauses a running test — see the `Stats.pausedMs` comment for why. */
   function handleInputBlur() {
@@ -446,6 +467,8 @@ export function TypingTest() {
         overflow-x-auto, where it belongs.
       */}
       <div className="grid gap-6 [&>*]:min-w-0 xl:grid-cols-[minmax(24rem,1fr)_auto] xl:items-start">
+      {/* The passage column: the text and, when asked for, what a word means. */}
+      <div className="space-y-4">
       <KeyboardInput
         onAction={handleAction}
         paused={paused}
@@ -471,6 +494,11 @@ export function TypingTest() {
         */}
         <p
           ref={passage}
+          // R4: one handler for the whole passage, reading the word off the
+          // element that was hit. A click handler per <Word> would be a new
+          // function identity every render and would re-render the passage on
+          // every keystroke — see the memo note in Word.tsx.
+          onClick={handleWordClick}
           className={`font-khmer h-[6.6em] overflow-hidden text-2xl leading-[2.2] sm:text-3xl ${
             ended ? 'opacity-50' : ''
           }`}
@@ -497,6 +525,17 @@ export function TypingTest() {
         </span>
 
       </KeyboardInput>
+
+        {/*
+          R4: under the passage and inside its column, so the word and its
+          meaning read together at every width — in the two-column layout the
+          keyboard diagram would otherwise sit between them. Absent from the
+          DOM entirely until a word is tapped.
+        */}
+        {definition !== null && (
+          <Definition word={definition} onClose={() => setDefinition(null)} />
+        )}
+      </div>
 
       {showKeyboard && (
         <KeyboardHint

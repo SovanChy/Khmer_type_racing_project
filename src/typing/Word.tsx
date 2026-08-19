@@ -60,6 +60,11 @@ export const Word = memo(function Word({ target, typed, status }: WordProps) {
       // handed down per word: a ref prop would change identity as the active
       // word moves and defeat the memo bailout this component exists for.
       data-active={status === 'active' || undefined}
+      // R4: read by the passage's single click handler. An attribute, not an
+      // onClick prop — a per-word callback would be a new function identity on
+      // every render and would defeat the memo above for every word at once.
+      // `target` is already a prop and never changes, so this costs nothing.
+      data-word={target}
       className={`whitespace-pre ${status === 'active' ? 'bg-caret/5 rounded-sm' : ''}`}
     >
       {cells.map((cell, i) => (
