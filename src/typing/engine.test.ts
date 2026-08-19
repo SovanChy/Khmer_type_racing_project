@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
+  activeClusterDetail,
   activeWordIndex,
   clusterView,
   countCorrectClusters,
   countCorrectCodepoints,
+  elapsedMs,
   score,
   targetSites,
   toWords,
@@ -126,6 +128,45 @@ describe('clusterView', () => {
 
   it('handles an empty word', () => {
     expect(clusterView('', '')).toEqual({ cells: [], caret: 0 });
+  });
+});
+
+describe('activeClusterDetail', () => {
+  it('renders a coeng and its consonant as ONE cell, not two', () => {
+    // COENG_STACK is ក + ្ + ក — three codepoints, but the coeng pair must
+    // fold into a single cell.
+    const detail = activeClusterDetail(COENG_STACK, '');
+    expect(detail).toEqual([
+      { text: CP.KA, status: 'pending' },
+      { text: CP.COENG + CP.KA, status: 'pending' },
+    ]);
+  });
+
+  it('marks a wrong subscript incorrect while the base consonant stays correct', () => {
+    // This is the whole point of R2: a bad subscript must not condemn the
+    // base consonant's cell the way clusterView's whole-cluster fold would.
+    // SREY (ស្រី, one cluster: ស + ្រ + ី) has a codepoint after the coeng
+    // pair, so it stays mid-typing (not "done") after the mistake -- unlike
+    // COENG_STACK, where a wrong final codepoint finishes the word outright.
+    const wrongSubscript = CP.SA + CP.COENG + CP.KA; // typed KA where RO was wanted
+    const detail = activeClusterDetail(SREY, wrongSubscript);
+    expect(detail).toEqual([
+      { text: CP.SA, status: 'correct' },
+      { text: CP.COENG + CP.RO, status: 'incorrect' },
+      { text: CP.SRA_II, status: 'pending' },
+    ]);
+  });
+
+  it('marks untyped codepoints in the active cluster pending', () => {
+    const detail = activeClusterDetail(COENG_STACK, CP.KA);
+    expect(detail).toEqual([
+      { text: CP.KA, status: 'correct' },
+      { text: CP.COENG + CP.KA, status: 'pending' },
+    ]);
+  });
+
+  it('returns nothing once the passage is fully typed', () => {
+    expect(activeClusterDetail(COENG_STACK, COENG_STACK)).toEqual([]);
   });
 });
 
@@ -288,6 +329,33 @@ describe('wordProps — the performance invariant', () => {
 
   it('marks exactly one word active while typing', () => {
     expect(at(7).filter((p) => p.status === 'active')).toHaveLength(1);
+  });
+});
+
+describe('elapsedMs', () => {
+  it('subtracts paused time from the wall-clock span', () => {
+    // A 60s run with 10s spent blurred should score as 50s, not 60s — the
+    // whole point of tracking pausedMs is that time away doesn't inflate
+    // duration/cpm for the saved session.
+    expect(elapsedMs({ startedAt: 0, endedAt: 60_000, pausedMs: 10_000 })).toBe(50_000);
+  });
+
+  it('feeds a paused span straight into cpm via score()', () => {
+    const ms = elapsedMs({ startedAt: 0, endedAt: 60_000, pausedMs: 10_000 });
+    // 500 correct codepoints in the 50s actually spent typing = 600/min, not
+    // the 500/min a naive endedAt-startedAt would report.
+    const { cpm } = score({
+      correctCp: 500,
+      correctClusters: 0,
+      correctPresses: 500,
+      totalPresses: 500,
+      ms,
+    });
+    expect(cpm).toBe(600);
+  });
+
+  it('returns the full span when nothing was paused', () => {
+    expect(elapsedMs({ startedAt: 1_000, endedAt: 4_000, pausedMs: 0 })).toBe(3_000);
   });
 });
 

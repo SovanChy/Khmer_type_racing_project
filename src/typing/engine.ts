@@ -69,17 +69,23 @@ export interface ClusterView {
   caret: number;
 }
 
+/** Codepoint comparison folded up by cluster index. Shared by every reader below. */
+function groupByCluster(target: string, typed: string): CharState[][] {
+  const groups: CharState[][] = [];
+  for (const state of compare(target, typed)) {
+    const group = groups[state.cluster] ?? (groups[state.cluster] = []);
+    group.push(state);
+  }
+  return groups;
+}
+
 /**
  * Fold per-codepoint comparison up to the cluster, which is the unit we paint.
  * A stacked glyph cannot be half-coloured, so a single wrong codepoint condemns
  * the whole cluster it belongs to.
  */
 export function clusterView(target: string, typed: string): ClusterView {
-  const groups: CharState[][] = [];
-  for (const state of compare(target, typed)) {
-    const group = groups[state.cluster] ?? (groups[state.cluster] = []);
-    group.push(state);
-  }
+  const groups = groupByCluster(target, typed);
 
   const cells = groups.map((group) => ({
     text: group.map((s) => s.cp).join(''),
@@ -95,6 +101,54 @@ function cellStatus(group: CharState[]): CellStatus {
   if (group.every((s) => s.status === 'correct')) return 'correct';
   if (group.some((s) => s.status === 'correct')) return 'partial';
   return 'pending';
+}
+
+export interface DetailCell {
+  /** The codepoint(s) this cell shows — a coeng and its consonant stay together. */
+  text: string;
+  status: CellStatus;
+}
+
+/**
+ * The active cluster broken into the pieces a single cluster cell cannot
+ * colour separately (R2: ្គ has to be paintable on its own).
+ *
+ * This does NOT split the text run the passage renders — it reads the same
+ * `compare()` output `clusterView` does and regroups it for a second, separate
+ * strip where each piece stands in its own element. Passage cells stay whole
+ * because splitting a cluster's text run there stops the shaper stacking the
+ * coeng subscript; this function only ever feeds a display that renders each
+ * piece standalone, so that risk does not apply here.
+ */
+export function activeClusterDetail(target: string, typed: string): DetailCell[] {
+  const states = compare(target, typed);
+  const typedLen = [...typed].length;
+  // Deliberately the cluster containing the NEXT codepoint to type
+  // (`states[typedLen]`) rather than a re-derivation of clusterView's own
+  // pending-or-partial caret. Those are the same cluster in the common case,
+  // but `cellStatus` folds "any incorrect codepoint" to 'incorrect' before it
+  // checks 'partial' -- so the instant a mid-cluster keystroke is wrong,
+  // clusterView's caret has ALREADY skipped past that cluster (it no longer
+  // reads as pending-or-partial), even though the word isn't finished. Basing
+  // the caret here on the *count* of codepoints actually typed instead keeps
+  // this strip on the cluster the user is still typing into -- which is
+  // exactly the cluster R2 needs to show a wrong subscript in.
+  const current = states[typedLen];
+  if (!current) return []; // word complete: nothing left to type
+
+  const group = states.filter((s) => s.cluster === current.cluster);
+  const cells: DetailCell[] = [];
+  for (let i = 0; i < group.length; i++) {
+    const state = group[i] as CharState;
+    const next = group[i + 1];
+    if (state.cp === COENG && next) {
+      cells.push({ text: state.cp + next.cp, status: cellStatus([state, next]) });
+      i++; // the paired codepoint is consumed, not a cell of its own
+    } else {
+      cells.push({ text: state.cp, status: cellStatus([state]) });
+    }
+  }
+  return cells;
 }
 
 /** Clusters typed completely and correctly — the basis for the WPM convention. */
@@ -196,6 +250,23 @@ export interface Score {
   cpm: number;
   wpm: number;
   accuracy: number;
+}
+
+/**
+ * Wall-clock elapsed time with paused (blurred) time excluded. One definition
+ * so `finalScore()`, the saved `durationMs`, and the live stats in
+ * `TypingTest.tsx` can't drift apart on the same subtraction.
+ */
+export function elapsedMs({
+  startedAt,
+  endedAt,
+  pausedMs,
+}: {
+  startedAt: number;
+  endedAt: number;
+  pausedMs: number;
+}): number {
+  return endedAt - startedAt - pausedMs;
 }
 
 export function score({

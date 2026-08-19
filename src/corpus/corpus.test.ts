@@ -1,6 +1,23 @@
 import { describe, expect, it } from 'vitest';
-import { buildDrillPassage, buildPassage, drillScore, parseCorpus } from './index';
-import { COENG_STACK, CP, KHMER, LANGUAGE, PASSAGE_ZWSP, SREY } from '../khmer/__fixtures__/khmer';
+import {
+  buildDrillPassage,
+  buildPassage,
+  drillScore,
+  MAX_QUOTE_WORDS,
+  parseCorpus,
+  parseQuote,
+} from './index';
+import { NIDA_LAYOUT } from '../keyboard/layout';
+import {
+  COENG_STACK,
+  CP,
+  KHMER,
+  LANGUAGE,
+  MIXED_SCRIPTS,
+  PASSAGE_SPACED,
+  PASSAGE_ZWSP,
+  SREY,
+} from '../khmer/__fixtures__/khmer';
 
 const raw = (over: Record<string, unknown> = {}) => ({
   entries: [{ id: 'p01', text: PASSAGE_ZWSP, source: 'test', level: 'beginner' }],
@@ -131,5 +148,82 @@ describe('buildPassage', () => {
 
   it('returns nothing for a zero-word request', () => {
     expect(buildPassage(entries, 0, firstAlways)).toEqual([]);
+  });
+});
+
+describe('parseQuote', () => {
+  it('keeps a real space as a word boundary the user still has to type', () => {
+    // Unlike ZWSP, a space in pasted prose is a character with a key.
+    expect(parseQuote(PASSAGE_SPACED).words).toEqual([LANGUAGE + ' ', KHMER]);
+  });
+
+  it('collapses a line break into a single space', () => {
+    // Newspaper text pastes full of hard wraps; a newline has no key.
+    const parsed = parseQuote(`${LANGUAGE}\n${KHMER}`);
+    expect(parsed.words).toEqual([LANGUAGE + ' ', KHMER]);
+    expect(parsed.removed).toBe(0);
+  });
+
+  it('collapses a run of whitespace into one space, not several', () => {
+    expect(parseQuote(`${LANGUAGE}  \n\t ${KHMER}`).words).toEqual([LANGUAGE + ' ', KHMER]);
+  });
+
+  it('strips characters NiDA cannot type and counts them', () => {
+    // MIXED_SCRIPTS is ក1a ១ ន — the Latin "1" and "a" have no NiDA key.
+    const parsed = parseQuote(MIXED_SCRIPTS);
+    expect(parsed.removed).toBe(2);
+    expect(parsed.words.join('')).not.toMatch(/[A-Za-z0-9]/);
+  });
+
+  it('keeps Khmer punctuation, which NiDA does have a key for', () => {
+    const parsed = parseQuote(LANGUAGE + CP.KHAN);
+    expect(parsed.removed).toBe(0);
+    expect(parsed.words.join('')).toContain(CP.KHAN);
+  });
+
+  it('splits at a ZWSP without asking the user to type it', () => {
+    const parsed = parseQuote(PASSAGE_ZWSP);
+    expect(parsed.words).toEqual([LANGUAGE, KHMER, SREY]);
+    expect(parsed.words.join('')).not.toContain(CP.ZWSP);
+    // A ZWSP is a boundary marker, not a character the user failed to type.
+    expect(parsed.removed).toBe(0);
+  });
+
+  it('caps a very long paste and reports that it did', () => {
+    const parsed = parseQuote(`${LANGUAGE} `.repeat(MAX_QUOTE_WORDS + 50));
+    expect(parsed.words).toHaveLength(MAX_QUOTE_WORDS);
+    expect(parsed.truncated).toBe(true);
+  });
+
+  it('does not claim truncation for a quote that fits', () => {
+    expect(parseQuote(PASSAGE_SPACED).truncated).toBe(false);
+  });
+
+  it('leaves no word that is only a space when a stripped run sat between two', () => {
+    // "…2024…" surrounded by spaces: dropping the digits must not leave a word
+    // consisting of one space, which the user would have to press twice.
+    expect(parseQuote(`${LANGUAGE} 2024 ${KHMER}`).words).toEqual([LANGUAGE + ' ', KHMER]);
+  });
+
+  it('returns nothing for whitespace-only input', () => {
+    expect(parseQuote('   \n\t  ').words).toEqual([]);
+  });
+
+  it('returns nothing for empty input', () => {
+    expect(parseQuote('').words).toEqual([]);
+  });
+
+  it('never yields a codepoint the NiDA table cannot produce', () => {
+    // The guarantee the whole function exists for: whatever survives, every
+    // codepoint of it has a key. Checked against the table itself rather than
+    // a hand-listed alphabet, so it cannot drift from nida.json.
+    const typeable = new Set([' ']);
+    for (const mapping of Object.values(NIDA_LAYOUT)) {
+      for (const cp of Object.values(mapping)) for (const c of cp) typeable.add(c);
+    }
+    const parsed = parseQuote(`${MIXED_SCRIPTS}«»${CP.KHAN}—“${LANGUAGE}`);
+    for (const c of parsed.words.join('')) {
+      expect(typeable.has(c), `${c} survived but has no NiDA key`).toBe(true);
+    }
   });
 });

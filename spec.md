@@ -34,13 +34,8 @@ one. Implement segmentation directly:
 const BASE  = '[\u1780-\u17A2\u17A5-\u17B3]';   // consonants + independent vowels
 const COENG = `(?:\u17D2${BASE})`;               // ្ + subscript consonant
 const SIGN  = '[\u17B6-\u17D1\u17D3\u17DD]';     // dependent vowels + diacritics
-const CLUSTER = new RegExp(`${BASE}${COENG}*${SIGN}*|.`, 'gus');
+const CLUSTER = new RegExp(`${BASE}${COENG}*${SIGN}*|.`, 'gu');
 ```
-
-The `s` (dotAll) flag is required, not optional. Without it `.` does not match
-line terminators and `matchAll` skips them silently, so newlines vanish from the
-output — `segment(t).join('') !== t` — and every codepoint→cluster index after a
-newline is off by one.
 
 Deliver in `src/khmer/`:
 
@@ -89,13 +84,62 @@ Store the table as JSON: ~50 keys × three layers (base / shift / AltGr).
 Note in the UI that `event.code` mapping assumes a QWERTY physical keyboard;
 AZERTY/Dvorak users should switch to OS layout mode.
 
-Input surface: a **hidden `<input>`** with `onKeyDown` + `preventDefault()`.
-Not `contentEditable` — we need raw key events for the remap, and a real input
-keeps mobile keyboards working.
+Input surface: a **visible, click-to-focus `<input>`** with `onKeyDown` +
+`preventDefault()` — the TypeRacer model. Not hidden, not `contentEditable`, and
+never autofocused on mount.
+
+This is a deliberate privacy decision, not just UX. The app records keystrokes,
+so the user must be able to *see* when it is listening and take focus away at
+will. A hidden input that grabs focus is capture the user cannot perceive.
+
+Consequences to implement:
+
+- The keydown handler lives **on the input element only**. Never on `document`
+  or `window`. Keyboard events target the focused element, so scoping is
+  automatic — no manual attach/detach logic, and no way to record a keystroke
+  while the field is unfocused.
+- `onBlur` pauses the running test. Do not silently keep timing.
+- A clear focus state (ring or caret indicator) plus an idle prompt — "click to
+  start typing".
+- Suppress browser and password-manager interference:
+  `autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false}
+  data-1p-ignore data-lpignore="true"`.
+
+`preventDefault()` keeps `input.value` permanently empty; we render the passage
+ourselves. **Do not read `input.value` or use `onChange`** — TypeRacer can,
+because the OS layout already produced the right characters. We cannot, because
+in-app remap mode maps physical key positions, and that information is gone by
+the time text reaches `value`.
+
+**Mobile is out of scope for this input path.** Khmer entry goes through an IME;
+during composition `keydown` fires with `key: "Unidentified"` and `keyCode: 229`,
+so no usable character arrives, and `event.code` is meaningless on a touchscreen
+regardless. Mobile would need a separate adapter built on `beforeinput`/`input`
+with value diffing and no `preventDefault()`. Build desktop first. Do not attempt
+to make one code path serve both.
 
 ---
 
 ## Phase 3 — Typing UI
+
+**Word boundaries come first.** Khmer does not put spaces between words — spaces
+mark phrase and clause boundaries. `text.split(' ')` therefore yields something
+closer to whole sentences, and the memoization strategy below silently collapses
+into one enormous `<Word>` re-rendering on every keystroke.
+
+Segment words with `Intl.Segmenter` at **corpus build time**, and cache the
+boundaries in the corpus JSON so the app never pays for it at runtime:
+
+```ts
+const seg = new Intl.Segmenter('km', { granularity: 'word' });
+const words = [...seg.segment(text)].filter(s => s.isWordLike).map(s => s.segment);
+```
+
+Note the split responsibility, and do not collapse the two: `Intl.Segmenter` is
+**banned for grapheme clusters** (it breaks coeng sequences — see Phase 1) and
+**required for word segmentation** (it carries a Khmer dictionary we cannot
+reproduce). Its word output is decent but imperfect; flag the corpus for review
+by a fluent reader before shipping.
 
 The hard requirement: **one keypress must not re-render the whole passage.**
 
@@ -112,6 +156,10 @@ Include a dev-mode render counter so I can confirm this actually holds.
 
 UI surface: timed (15/30/60s) and word-count (25/50/100) modes; live CPM and
 accuracy; a results screen; restart on Tab+Enter; light/dark theme.
+
+The input field is visible and must be clicked to start (Phase 2). Never
+autofocus on mount. On blur, pause and show a resume state — the user should
+always be able to tell at a glance whether keystrokes are being recorded.
 
 **Scoring — be explicit and honest.** "Characters ÷ 5" is meaningless for Khmer.
 Show **CPM (keystrokes/minute)** as the primary metric. If a WPM number is also

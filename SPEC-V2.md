@@ -123,9 +123,32 @@ NiDA is unfamiliar to most users. Open item #8.
 
 ### R1 —
 
+Touch Typing tutorial UI interface where it shows what on the keyboard should be typed and what is the next word we should type
+
+The reason is that it will help the user learn what keyboard to type for the current word that they are reading like how a person learn to type with 5 fingers
+
+
 ### R2 —
 
-### R3 —
+show what key stroke that I type wrong at a specific letter and what is right with green (correct) and red (incorrect)
+
+The reason for this is to indicate that I typed the wrong. There is an existing indication, but it only show a light white and yellow which doesn't really help. Also, I want it to show at a specific character. Like there are smaller characters in khmer like ្គ and highlight that when I wrote it wrong. Don't forget to add this coloring to the keyboard in R1 UI too
+
+Also, when typed wrong, show what should be the correct placement on the keyboard indicator like a hint for it
+
+### R3 — 
+
+Allow me to enter quote that I copy and paste from somewhere else. I want to test out some newspaper quote, so I can copy it and test typing it out on the website. This includes proper spacing កើត ទេ instead of no spacing at all
+
+reason: help the user type what type of quote they want to type
+
+### R4 -
+
+dictionary feature where a user can tap on the word and look up what it means. This is great for no time limit where you can go with the flow and practice touch typing at the same time
+
+
+### R5
+- indicator when timer is out. Like an alert. Because the timer is over, there wasn't an alert and I just keep typing and wondering why it didn't work
 
 ---
 

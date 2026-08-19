@@ -34,10 +34,12 @@ const altGr = (over: Partial<KeyEventLike>): KeyEventLike =>
   ev({ ctrlKey: true, altKey: true, getModifierState: (k) => k === 'AltGraph', ...over });
 
 describe('nida.json', () => {
-  it('is marked unverified until the real NiDA layout is supplied', () => {
-    // Flipping this to true is the deliberate act of vouching for the table.
-    // If this test fails, the table was verified — delete this test.
-    expect(NIDA.verified).toBe(false);
+  it('stays verified', () => {
+    // Was `toBe(false)` with instructions to delete it once a human vouched.
+    // Inverted rather than deleted: the flag silently flipping back to false
+    // would quietly re-enable the "do not practise on this" banner, and that
+    // should fail a test rather than be noticed by eye.
+    expect(NIDA.verified).toBe(true);
   });
 
   it('maps only key positions that can produce a character', () => {
@@ -46,21 +48,55 @@ describe('nida.json', () => {
     }
   });
 
-  it('maps every layer to exactly one codepoint, or null', () => {
+  /**
+   * This assertion used to demand exactly one codepoint per layer, because
+   * SPEC.md Phase 1 states "one NiDA keypress emits exactly one codepoint".
+   * The real layout disproves it: five keys are ligatures that emit a base
+   * vowel plus a combining mark in a single press (KeyA.shift = ាំ, and see
+   * the others in nida.json). The rule that survives is narrower — a pair is
+   * only ever a character followed by a combining mark, never two unrelated
+   * codepoints stuffed into one key.
+   */
+  it('maps every layer to one codepoint, or a codepoint plus a combining mark', () => {
     for (const [code, mapping] of Object.entries(NIDA.keys)) {
       for (const [layer, cp] of Object.entries(mapping)) {
         if (cp === null) continue;
-        expect([...cp], `${code}.${layer} must be one codepoint`).toHaveLength(1);
+        const cps = [...cp];
+        expect(cps.length, `${code}.${layer} = ${u(cp)} is more than a ligature`)
+          .toBeLessThanOrEqual(2);
+        if (cps.length === 2) {
+          expect(/\p{M}/u.test(cps[1]), `${code}.${layer} = ${u(cp)} is not base + mark`).toBe(true);
+        }
       }
     }
   });
 
-  it('maps every layer to a Khmer codepoint', () => {
+  /**
+   * Also weakened against reality: NiDA genuinely puts non-Khmer characters on
+   * the keyboard — «» on Backquote, ZWJ/ZWNJ on the AltGr layer, and ASCII
+   * punctuation across the digit row. Demanding Khmer everywhere was wrong.
+   *
+   * What must still never appear is a Latin letter or digit: that is the
+   * signature of a table captured from the wrong active layout (KeyQ = "q"),
+   * which is the mistake that silently teaches an entire wrong keyboard.
+   */
+  it('never maps a layer to a Latin letter or digit', () => {
     for (const [code, mapping] of Object.entries(NIDA.keys)) {
       for (const [layer, cp] of Object.entries(mapping)) {
         if (cp === null) continue;
-        expect(KHMER_CODEPOINT.test(cp), `${code}.${layer} = ${u(cp)} is not Khmer`).toBe(true);
+        expect(/[A-Za-z0-9]/.test(cp), `${code}.${layer} = ${u(cp)} is Latin — wrong layout?`)
+          .toBe(false);
       }
+    }
+  });
+
+  it('maps at least one Khmer codepoint on every letter key', () => {
+    // The complement of the test above: a table that is merely punctuation
+    // would pass "no Latin" while teaching nothing.
+    for (const [code, mapping] of Object.entries(NIDA.keys)) {
+      if (!code.startsWith('Key')) continue;
+      const layers = Object.values(mapping).filter((cp): cp is string => cp !== null);
+      expect(layers.some((cp) => KHMER_CODEPOINT.test(cp.charAt(0))), `${code} has no Khmer`).toBe(true);
     }
   });
 

@@ -1,19 +1,58 @@
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { buildDrillPassage, buildPassage, loadCorpus, type CorpusEntry } from '../corpus';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
+import {
+  buildDrillPassage,
+  buildPassage,
+  loadCorpus,
+  MAX_QUOTE_WORDS,
+  parseQuote,
+  type CorpusEntry,
+  type ParsedQuote,
+} from '../corpus';
+import { HINT_KEYS, KeyboardHint } from '../keyboard/KeyboardHint';
 import { KeyboardInput } from '../keyboard/KeyboardInput';
 import type { KeyAction } from '../keyboard/nida';
 import {
+  activeClusterDetail,
   countCorrectClusters,
   countCorrectCodepoints,
+  elapsedMs,
   score,
   targetSites,
   wordProps,
   CLUSTERS_PER_WORD,
+  type CellStatus,
   type Score,
 } from './engine';
 import { Word, wordRenders } from './Word';
+import { standalone } from '../khmer/segment';
 import { saveSession, worstClusters, type KeystrokeRecord } from '../storage';
 import { useStore } from '../store';
+
+/**
+ * Palette for the cluster strip only — deliberately not `CELL_CLASS`, which
+ * styles inline text inside the passage where a filled box would wreck the
+ * line box. Here each piece is a standalone cell whose whole job is to be seen
+ * without looking for it, so it gets a border, a fill and four times the size.
+ */
+const DETAIL_CLASS: Record<CellStatus, string> = {
+  correct: 'border-success/50 bg-success/10 text-success',
+  // The underline carries over from CELL_CLASS for the same reason it exists
+  // there: the non-colour cue that keeps this readable under red/green colour
+  // blindness. Do not drop it as redundant with the fill.
+  incorrect: 'border-error bg-error/20 text-error underline decoration-error/60 underline-offset-8',
+  // Dimmed success, not dimmed default: partial means some codepoints in the
+  // cluster landed correct and none are wrong yet.
+  partial: 'border-success/30 bg-success/5 text-success/70',
+  pending: 'border-border text-muted',
+};
 
 /**
  * How hard drill mode leans on weak clusters, against a baseline weight of 1
@@ -42,6 +81,13 @@ interface Stats {
   endedAt: number;
   /** Date.now() — wall clock, for storing when the run happened. */
   startedAtEpoch: number;
+  /**
+   * Total time spent paused (blurred) so far, in ms. Subtracted from
+   * `endedAt - startedAt` everywhere elapsed time is computed, rather than
+   * shifting `startedAt` itself — one accumulator is simpler than rewriting a
+   * monotonic anchor every time focus returns.
+   */
+  pausedMs: number;
 }
 
 const freshStats = (): Stats => ({
@@ -50,10 +96,15 @@ const freshStats = (): Stats => ({
   startedAt: 0,
   endedAt: 0,
   startedAtEpoch: 0,
+  pausedMs: 0,
 });
 
 export function TypingTest() {
   const noteSessionSaved = useStore((s) => s.noteSessionSaved);
+  const showKeyboard = useStore((s) => s.showKeyboard);
+  const setShowKeyboard = useStore((s) => s.setShowKeyboard);
+  const quote = useStore((s) => s.quote);
+  const setQuote = useStore((s) => s.setQuote);
   const [corpus, setCorpus] = useState<CorpusEntry[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [config, setConfig] = useState<TestConfig>({ kind: 'time', seconds: 30 });
@@ -77,7 +128,26 @@ export function TypingTest() {
   const savedFor = useRef(-1);
   const [saveState, setSaveState] = useState<{ kind: 'saving' | 'saved' | 'error'; message?: string }>();
 
+  // Blurring the input pauses a running test (F-11): the timer must stop and
+  // elapsed time must not include the blurred interval. `paused` is only ever
+  // true while `phase === 'running'`. `pauseStartedAt` is a ref (not state) —
+  // it's an implementation detail of the accumulator, not something anything
+  // renders from.
+  const [paused, setPaused] = useState(false);
+  const pauseStartedAt = useRef<number | null>(null);
+
   const [drill, setDrill] = useState(false);
+
+  // R3: parsed once per quote, not once per restart — the strip/count shown in
+  // the config bar and the passage itself must come from the same parse.
+  const parsedQuote = useMemo(() => (quote === null ? null : parseQuote(quote)), [quote]);
+
+  // The passage is a fixed-height window (see the JSX); this keeps the active
+  // word inside it. A DOM query rather than React state on purpose: scrolling
+  // is not something any component renders from, and routing it through state
+  // would re-render the passage on every keystroke.
+  const passage = useRef<HTMLParagraphElement>(null);
+  const more = useRef<HTMLSpanElement>(null);
 
   // In a ref, not state: refreshing the weights must not rebuild the passage
   // mid-run or wipe the results screen the user is still reading.
@@ -98,34 +168,99 @@ export function TypingTest() {
   }, []);
 
   const restart = useCallback(() => {
-    if (!corpus) return;
+    if (!parsedQuote && !corpus) return;
     typed.current = [];
     stats.current = freshStats();
     keystrokes.current = [];
     lastKeyAt.current = 0;
+    pauseStartedAt.current = null;
+    setPaused(false);
     setSaveState(undefined);
 
-    const count = config.kind === 'words' ? config.count : TIMED_PASSAGE_WORDS;
-    setWords(
-      drill ? buildDrillPassage(corpus, weights.current, count) : buildPassage(corpus, count),
-    );
+    if (parsedQuote) {
+      // R3: the quote IS the passage. Its length is whatever the user pasted,
+      // so the time/word presets do not apply — see the countdown effect.
+      setWords(parsedQuote.words);
+    } else if (corpus) {
+      const count = config.kind === 'words' ? config.count : TIMED_PASSAGE_WORDS;
+      setWords(
+        drill ? buildDrillPassage(corpus, weights.current, count) : buildPassage(corpus, count),
+      );
+    }
     setCaret(0);
     setPhase('idle');
-  }, [corpus, config, drill]);
+  }, [corpus, config, drill, parsedQuote]);
 
   // Also fires when the corpus arrives or the config changes, which is exactly
   // when a fresh passage is wanted.
   useEffect(() => restart(), [restart]);
 
-  // A timed test ends on the clock; a word test ends when the passage runs out.
+  // Keep the active word inside the passage window. `block: 'nearest'` scrolls
+  // the minimum needed, so a word already on screen moves nothing — without it
+  // every keystroke would yank the whole page.
+  //
+  // The "…" marker is toggled here rather than rendered from state: it has to
+  // be decided from the post-scroll scroll position, which only exists after
+  // the DOM has settled, and a state update would re-render the passage on
+  // every keystroke. Same reasoning as RenderCounter below.
   useEffect(() => {
-    if (phase !== 'running' || config.kind !== 'time') return;
+    // Not named `window`: shadowing the global would make the codebase-wide
+    // grep for `window` handlers (a privacy rule in CLAUDE.md) return noise.
+    const view = passage.current;
+    view?.querySelector('[data-active]')?.scrollIntoView({ block: 'nearest' });
+    if (!view || !more.current) return;
+    // The 1px slack absorbs sub-pixel line heights, which otherwise leave a
+    // fully-scrolled window looking like it still has text below.
+    const hasMore = view.scrollTop + view.clientHeight < view.scrollHeight - 1;
+    // visibility, not display: hiding it must not move the keyboard below.
+    more.current.style.visibility = hasMore ? 'visible' : 'hidden';
+  }, [caret, words]);
+
+  // A timed test ends on the clock; a word test ends when the passage runs out.
+  // Recomputed from scratch on every pause/resume so the remaining time — not
+  // the original duration — is what gets scheduled, and nothing is scheduled
+  // at all while paused.
+  useEffect(() => {
+    // A quote ends when its last codepoint is typed (see handleAction), so no
+    // countdown runs against it — cutting a quote off mid-sentence at 30s is
+    // the opposite of what "type this article" means.
+    if (phase !== 'running' || config.kind !== 'time' || paused || quote !== null) return;
+    const elapsed = elapsedMs({
+      startedAt: stats.current.startedAt,
+      endedAt: performance.now(),
+      pausedMs: stats.current.pausedMs,
+    });
+    const remaining = config.seconds * 1000 - elapsed;
+    if (remaining <= 0) {
+      stats.current.endedAt = performance.now();
+      setPhase('done');
+      return;
+    }
     const id = setTimeout(() => {
       stats.current.endedAt = performance.now();
       setPhase('done');
-    }, config.seconds * 1000);
+    }, remaining);
     return () => clearTimeout(id);
-  }, [phase, config]);
+  }, [phase, config, paused, quote]);
+
+  /** Blur pauses a running test — see the `Stats.pausedMs` comment for why. */
+  function handleInputBlur() {
+    if (phase !== 'running') return;
+    pauseStartedAt.current = performance.now();
+    setPaused(true);
+  }
+
+  function handleInputFocus() {
+    if (pauseStartedAt.current === null) return;
+    stats.current.pausedMs += performance.now() - pauseStartedAt.current;
+    pauseStartedAt.current = null;
+    // Otherwise the next keystroke's msSincePrev would read as tens of
+    // seconds of "hesitation" instead of the pause it actually was. 0 has the
+    // same meaning here as it does for the very first keystroke of a run: no
+    // previous keystroke to measure a gap from.
+    lastKeyAt.current = 0;
+    setPaused(false);
+  }
 
   /** Final numbers for the run. One definition, so the saved row and the screen agree. */
   const finalScore = useCallback(() => {
@@ -135,7 +270,11 @@ export function TypingTest() {
       correctClusters: countCorrectClusters(target, typedText),
       correctPresses: stats.current.correctPresses,
       totalPresses: stats.current.totalPresses,
-      ms: stats.current.endedAt - stats.current.startedAt,
+      ms: elapsedMs({
+        startedAt: stats.current.startedAt,
+        endedAt: stats.current.endedAt,
+        pausedMs: stats.current.pausedMs,
+      }),
     });
   }, [target]);
 
@@ -166,7 +305,13 @@ export function TypingTest() {
       {
         startedAt: stats.current.startedAtEpoch,
         mode: config.kind === 'time' ? `time:${config.seconds}` : `words:${config.count}`,
-        durationMs: Math.round(stats.current.endedAt - stats.current.startedAt),
+        durationMs: Math.round(
+          elapsedMs({
+            startedAt: stats.current.startedAt,
+            endedAt: stats.current.endedAt,
+            pausedMs: stats.current.pausedMs,
+          }),
+        ),
         cpm: final.cpm,
         accuracy: final.accuracy,
       },
@@ -244,9 +389,27 @@ export function TypingTest() {
   // much longer passage ever makes it show up.
   const correctCp = countCorrectCodepoints(target, typedText);
 
+  // R2 strip: the active word's own cluster decomposition. Cluster boundaries
+  // never cross a word boundary (toWords/chunkByClusters both cut on cluster
+  // edges), so feeding the active word alone is equivalent to feeding the
+  // whole passage and cheaper.
+  const currentWordProps = wordProps(words, typed.current, caret);
+  const activeWord = currentWordProps.find((p) => p.status === 'active');
+  const activeDetail = activeWord ? activeClusterDetail(activeWord.target, activeWord.typed) : [];
+
   return (
     <section className="space-y-6">
-      <ConfigBar config={config} onChange={setConfig} drill={drill} onDrillChange={setDrill} />
+      <ConfigBar
+        config={config}
+        onChange={setConfig}
+        drill={drill}
+        onDrillChange={setDrill}
+        showKeyboard={showKeyboard}
+        onShowKeyboardChange={setShowKeyboard}
+        quote={quote}
+        parsed={parsedQuote}
+        onQuoteChange={setQuote}
+      />
 
       <LiveStats
         phase={phase}
@@ -256,17 +419,110 @@ export function TypingTest() {
         totalPresses={stats.current.totalPresses}
         startedAt={stats.current.startedAt}
         endedAt={stats.current.endedAt}
+        pausedMs={stats.current.pausedMs}
+        paused={paused}
         caret={caret}
         totalCps={targetCps.length}
+        quoteMode={quote !== null}
       />
 
-      <KeyboardInput onAction={handleAction}>
-        <p className="font-khmer text-2xl leading-[2.2] sm:text-3xl" lang="km">
-          {wordProps(words, typed.current, caret).map((props, i) => (
+      {/*
+        Passage and keyboard side by side from `xl` up, stacked below it.
+        Stacking cost about 500px of height, which pushed the keyboard off the
+        bottom of a short laptop screen exactly when a learner needs to see the
+        text and the key at the same moment. Splitting is only possible on a
+        wide viewport — the diagram's narrowest row is ~776px and does not
+        usefully shrink — so this is a two-column layout where there is room
+        and the old stack everywhere else.
+      */}
+      {/*
+        [&>*]:min-w-0 is load-bearing, not tidying: a grid item defaults to
+        min-width:auto, so the keyboard panel would refuse to shrink below its
+        ~810px content and push the whole PAGE into horizontal scroll on a
+        phone. Zeroing the floor hands the overflow back to the panel's own
+        overflow-x-auto, where it belongs.
+      */}
+      <div className="grid gap-6 [&>*]:min-w-0 xl:grid-cols-[minmax(24rem,1fr)_auto] xl:items-start">
+      <KeyboardInput
+        onAction={handleAction}
+        paused={paused}
+        onBlur={handleInputBlur}
+        onFocus={handleInputFocus}
+      >
+        {/*
+          A fixed three-line window, not the whole passage. A 150-word timed
+          passage is ~25 lines at any readable column width, which pushes the
+          keyboard hint and the results screen below the fold — so the passage
+          scrolls under the caret instead of growing. `overflow-hidden` still
+          scrolls programmatically; making it `auto` would let the user scroll
+          the text out of sync with what they are typing.
+
+          The height is in `em` so it tracks the responsive font size, and the
+          multiplier is the `leading` value: 3 lines exactly, whatever the
+          breakpoint. Changing one without the other silently clips a line.
+        */}
+        <p
+          ref={passage}
+          className="font-khmer h-[6.6em] overflow-hidden text-2xl leading-[2.2] sm:text-3xl"
+          lang="km"
+        >
+          {currentWordProps.map((props, i) => (
             <Word key={i} {...props} />
           ))}
         </p>
+
+        {/*
+          "there is more passage below this window". Hidden, not unmounted, by
+          the scroll effect above. aria-hidden because it is a visual affordance
+          for a clipped box — every word is in the DOM either way, so a screen
+          reader has nothing to be told here.
+        */}
+        <span
+          ref={more}
+          aria-hidden
+          className="text-muted block text-right font-mono text-sm leading-none"
+          style={{ visibility: 'hidden' }}
+        >
+          …
+        </span>
+
+        {/*
+          R2 cluster-decomposition strip: the active cluster broken into the
+          pieces a single passage cell cannot colour separately (a coeng and
+          its consonant, e.g. ្គ, has to light up red or green on its own).
+          Unlike the passage above, each piece here is its OWN element on
+          purpose — that is safe precisely because this strip never renders a
+          cluster mid-stack across two cells the way splitting the passage's
+          text run would; each cell is a self-contained stacking unit, so
+          nothing needs to shape across the boundary between them.
+          aria-hidden: a visual decomposition of text already present in the
+          passage, nothing new for a screen reader. Hidden (not unmounted)
+          when there's no active cluster, so the keyboard hint below doesn't
+          jump — same reasoning as the "…" marker above.
+        */}
+        <div
+          aria-hidden
+          lang="km"
+          className="font-khmer mt-4 flex h-20 items-center gap-2"
+          style={{ visibility: activeDetail.length > 0 ? 'visible' : 'hidden' }}
+        >
+          {activeDetail.map((cell, i) => (
+            // standalone(): a coeng or a vowel sign has nothing to stack onto
+            // in a lone cell, so it gets a dotted circle to sit on.
+            <span
+              key={i}
+              className={`flex h-16 min-w-16 items-center justify-center rounded-lg border-2 px-3 text-4xl leading-[1.3] ${DETAIL_CLASS[cell.status]}`}
+            >
+              {standalone(cell.text)}
+            </span>
+          ))}
+        </div>
       </KeyboardInput>
+
+      {showKeyboard && (
+        <KeyboardHint nextCps={sites.slice(caret, caret + HINT_KEYS).map((s) => s.codepoint)} />
+      )}
+      </div>
 
       {/* Immediately after the input in DOM order, so Tab then Enter restarts. */}
       <button
@@ -295,59 +551,262 @@ function ConfigBar({
   onChange,
   drill,
   onDrillChange,
+  showKeyboard,
+  onShowKeyboardChange,
+  quote,
+  parsed,
+  onQuoteChange,
 }: {
   config: TestConfig;
   onChange: (config: TestConfig) => void;
   drill: boolean;
   onDrillChange: (drill: boolean) => void;
+  showKeyboard: boolean;
+  onShowKeyboardChange: (show: boolean) => void;
+  quote: string | null;
+  parsed: ParsedQuote | null;
+  onQuoteChange: (quote: string | null) => void;
 }) {
-  const chip = (selected: boolean) =>
-    `cursor-pointer rounded-md px-2.5 py-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-caret ${
-      selected ? 'bg-caret/15 text-caret' : 'text-muted hover:text-fg'
-    }`;
+  // A pasted quote is its own length and its own text, so neither a duration,
+  // a word count nor a drill weighting has anything left to act on.
+  const locked = quote !== null;
 
   return (
-    <div className="border-border flex flex-wrap items-center gap-x-5 gap-y-2 rounded-md border px-3 py-2 font-mono text-sm">
-      <div role="radiogroup" aria-label="Timed test length" className="flex items-center gap-1">
-        <span className="text-muted mr-1 text-xs">time</span>
-        {TIME_PRESETS.map((seconds) => (
-          <button
-            key={seconds}
-            role="radio"
-            aria-checked={config.kind === 'time' && config.seconds === seconds}
-            onClick={() => onChange({ kind: 'time', seconds })}
-            className={chip(config.kind === 'time' && config.seconds === seconds)}
-          >
-            {seconds}
-          </button>
-        ))}
-      </div>
+    <div className="border-border flex flex-wrap items-center gap-x-4 gap-y-3 rounded-lg border px-3 py-2.5">
+      <Segmented
+        label="time"
+        unit="s"
+        ariaLabel="Timed test length"
+        options={TIME_PRESETS}
+        selected={config.kind === 'time' ? config.seconds : null}
+        onSelect={(seconds) => onChange({ kind: 'time', seconds })}
+        disabled={locked}
+      />
 
-      <div role="radiogroup" aria-label="Word count test length" className="flex items-center gap-1">
-        <span className="text-muted mr-1 text-xs">words</span>
-        {WORD_PRESETS.map((count) => (
-          <button
-            key={count}
-            role="radio"
-            aria-checked={config.kind === 'words' && config.count === count}
-            onClick={() => onChange({ kind: 'words', count })}
-            className={chip(config.kind === 'words' && config.count === count)}
-          >
-            {count}
-          </button>
-        ))}
-      </div>
+      <Segmented
+        label="words"
+        ariaLabel="Word count test length"
+        options={WORD_PRESETS}
+        selected={config.kind === 'words' ? config.count : null}
+        onSelect={(count) => onChange({ kind: 'words', count })}
+        disabled={locked}
+      />
 
-      <button
-        role="switch"
-        aria-checked={drill}
-        onClick={() => onDrillChange(!drill)}
+      <span aria-hidden className="bg-border hidden h-7 w-px sm:block" />
+
+      <Toggle
+        checked={drill}
+        onChange={() => onDrillChange(!drill)}
+        disabled={locked}
         title="Draw sentences that are denser in the clusters you get wrong"
-        className={chip(drill)}
       >
         drill
-      </button>
+      </Toggle>
+
+      <Toggle
+        checked={showKeyboard}
+        onChange={() => onShowKeyboardChange(!showKeyboard)}
+        title="Show an on-screen keyboard diagram of the next key to press"
+      >
+        keyboard
+      </Toggle>
+
+      <QuoteControl quote={quote} parsed={parsed} onQuoteChange={onQuoteChange} />
     </div>
+  );
+}
+
+/**
+ * A pick-one group, drawn as a segmented control on a recessed track.
+ *
+ * The three control kinds in this bar (pick-one, on/off, action) used to share
+ * one chip style, which made the bar unreadable — you could not tell what a
+ * button would DO from looking at it. Each now has its own shape: this one is
+ * a group of segments sharing a track, so it reads as a set of alternatives.
+ *
+ * Text stays `--fg` on the selected segment rather than switching to the green
+ * accent: the accent carries the "this one" meaning through the tint and ring,
+ * while the label keeps full contrast. Green-on-white is only ~3.6:1, under the
+ * 4.5:1 small text needs.
+ */
+function Segmented<T extends number>({
+  label,
+  unit = '',
+  ariaLabel,
+  options,
+  selected,
+  onSelect,
+  disabled,
+}: {
+  label: string;
+  unit?: string;
+  ariaLabel: string;
+  options: readonly T[];
+  selected: T | null;
+  onSelect: (value: T) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-muted text-[11px] font-semibold tracking-widest uppercase">
+        {label}
+      </span>
+      <div
+        role="radiogroup"
+        aria-label={ariaLabel}
+        className={`bg-border/15 flex items-center gap-0.5 rounded-lg p-0.5 ${disabled ? 'opacity-40' : ''}`}
+      >
+        {options.map((value) => {
+          const on = selected === value;
+          return (
+            <button
+              key={value}
+              role="radio"
+              aria-checked={on}
+              onClick={() => onSelect(value)}
+              disabled={disabled}
+              className={`focus-visible:ring-caret cursor-pointer rounded-md px-2.5 py-1 font-mono text-sm tabular-nums transition-colors focus-visible:ring-2 focus-visible:outline-none disabled:cursor-not-allowed ${
+                on
+                  ? 'bg-caret/20 text-fg ring-caret font-semibold ring-1'
+                  : 'text-muted hover:text-fg'
+              }`}
+            >
+              {value}
+              {unit}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * An on/off switch. `role="switch"` already said so to a screen reader; the
+ * dot is what says it to everyone else — a filled dot for on, a hollow ring
+ * for off, so the state survives greyscale and colour blindness instead of
+ * resting on a green tint alone.
+ */
+function Toggle({
+  checked,
+  onChange,
+  disabled,
+  title,
+  children,
+}: {
+  checked: boolean;
+  onChange: () => void;
+  disabled?: boolean;
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      role="switch"
+      aria-checked={checked}
+      onClick={onChange}
+      disabled={disabled}
+      title={title}
+      className={`focus-visible:ring-caret flex cursor-pointer items-center gap-2 rounded-full border px-3 py-1 font-mono text-sm transition-colors focus-visible:ring-2 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-40 ${
+        checked ? 'border-caret text-fg' : 'border-border text-muted hover:text-fg'
+      }`}
+    >
+      <span
+        aria-hidden
+        className={`h-2 w-2 shrink-0 rounded-full ${
+          checked ? 'bg-caret' : 'border-muted border bg-transparent'
+        }`}
+      />
+      {children}
+    </button>
+  );
+}
+
+/**
+ * R3: paste your own text to type instead of the corpus.
+ *
+ * A native `<details>` rather than a boolean in state — the browser already
+ * owns "is this panel open", and the summary is styled as a chip so it reads
+ * as a fourth mode in the config row rather than something tucked away.
+ *
+ * The textarea has no `onKeyDown` and no remap: it is an ordinary paste
+ * target, so the typing input stays the only surface in the app that captures
+ * keystrokes. See the input-handler rule in CLAUDE.md.
+ */
+function QuoteControl({
+  quote,
+  parsed,
+  onQuoteChange,
+}: {
+  quote: string | null;
+  parsed: ParsedQuote | null;
+  onQuoteChange: (quote: string | null) => void;
+}) {
+  const [draft, setDraft] = useState(quote ?? '');
+
+  return (
+    <details className="w-full">
+      {/*
+        The only action in a bar of settings, so it gets the third and last
+        visual language: a dashed "+" outline, the conventional "add content
+        here" affordance, sharing nothing with the segments or the switches.
+        Deliberately NOT filled with the green accent — that accent means
+        "selected" everywhere else in this bar, and white on it is only ~4:1.
+        The solid commit button lives inside the panel, one step later.
+      */}
+      <summary className="border-border hover:border-fg/30 focus-visible:ring-caret text-fg -mx-1 flex w-fit cursor-pointer list-none items-center gap-2 rounded-lg border-2 border-dashed px-3 py-1.5 text-sm font-semibold transition-colors focus-visible:ring-2 focus-visible:outline-none">
+        <span aria-hidden className="text-base leading-none">+</span>
+        {quote === null ? 'Insert your own text' : 'Your own text'}
+        {quote !== null && (
+          <span className="bg-caret/20 text-fg ring-caret rounded-full px-2 py-0.5 font-mono text-xs ring-1">
+            in use
+          </span>
+        )}
+      </summary>
+
+      <div className="mt-2 space-y-2">
+        <textarea
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          rows={4}
+          placeholder="Paste a quote — a newspaper paragraph, anything in Khmer."
+          aria-label="Your own text to type"
+          lang="km"
+          className="font-khmer border-border bg-surface text-fg focus-visible:border-caret block w-full rounded-md border p-3 text-base outline-none"
+        />
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Primary and secondary, not two identical buttons: one of these
+              replaces your passage and the other throws it away. */}
+          <button
+            onClick={() => onQuoteChange(draft.trim().length > 0 ? draft : null)}
+            disabled={draft.trim().length === 0}
+            className="bg-fg text-bg focus-visible:ring-caret cursor-pointer rounded-lg px-4 py-1.5 text-sm font-semibold transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-30"
+          >
+            Use this text
+          </button>
+          {quote !== null && (
+            <button
+              onClick={() => {
+                setDraft('');
+                onQuoteChange(null);
+              }}
+              className="text-muted hover:text-fg focus-visible:ring-caret cursor-pointer rounded-lg px-2 py-1.5 text-sm underline underline-offset-4 focus-visible:ring-2 focus-visible:outline-none"
+            >
+              Back to corpus
+            </button>
+          )}
+          {parsed && (
+            // Never let a silent strip go unreported: the passage differs from
+            // what was pasted, and the user is entitled to know why.
+            <span className="text-muted text-xs">
+              {parsed.words.length} words
+              {parsed.removed > 0 && ` · ${parsed.removed} characters NiDA cannot type removed`}
+              {parsed.truncated && ` · truncated to ${MAX_QUOTE_WORDS} words`}
+            </span>
+          )}
+        </div>
+      </div>
+    </details>
   );
 }
 
@@ -364,8 +823,11 @@ function LiveStats({
   totalPresses,
   startedAt,
   endedAt,
+  pausedMs,
+  paused,
   caret,
   totalCps,
+  quoteMode,
 }: {
   phase: Phase;
   config: TestConfig;
@@ -374,22 +836,30 @@ function LiveStats({
   totalPresses: number;
   startedAt: number;
   endedAt: number;
+  pausedMs: number;
+  paused: boolean;
   caret: number;
   totalCps: number;
+  /** A quote ends when it runs out, so there is no countdown to display. */
+  quoteMode: boolean;
 }) {
   const [, tick] = useReducer((n: number) => n + 1, 0);
 
+  // Stop ticking while paused so the displayed cpm/time freeze instead of
+  // drifting down as if the user were typing nothing for tens of seconds.
   useEffect(() => {
-    if (phase !== 'running') return;
+    if (phase !== 'running' || paused) return;
     const id = setInterval(tick, 250);
     return () => clearInterval(id);
-  }, [phase]);
+  }, [phase, paused]);
 
-  const ms = phase === 'idle' ? 0 : (endedAt || performance.now()) - startedAt;
+  const ms =
+    phase === 'idle' ? 0 : elapsedMs({ startedAt, endedAt: endedAt || performance.now(), pausedMs });
   const live = score({ correctCp, correctClusters: 0, correctPresses, totalPresses, ms });
 
-  const progress =
-    config.kind === 'time'
+  const progress = paused
+    ? 'paused'
+    : config.kind === 'time' && !quoteMode
       ? `${Math.max(0, Math.ceil(config.seconds - ms / 1000))}s`
       : `${caret}/${totalCps}`;
 

@@ -43,3 +43,19 @@ export function segment(text: string): string[] {
 export function stripInvisible(text: string): string {
   return text.replaceAll('\u200B', '');
 }
+
+/**
+ * Prefix U+25CC DOTTED CIRCLE so a combining mark can be shown on its own.
+ *
+ * A lone dependent vowel, diacritic or coeng has no base consonant to attach
+ * to, so on its own it renders as a stray floating accent -- or worse, latches
+ * onto whatever character happens to precede it in the DOM. The dotted circle
+ * is the base the Unicode charts themselves use for exactly this. Anything
+ * that is not a mark passes through untouched.
+ *
+ * Display only. The result must never be fed back into `segment()`, `compare()`
+ * or the typed buffer -- it is one codepoint longer than the text it describes.
+ */
+export function standalone(text: string): string {
+  return /^\p{M}/u.test(text) ? '\u25CC' + text : text;
+}

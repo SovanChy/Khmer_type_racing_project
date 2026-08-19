@@ -1,3 +1,4 @@
+import { NIDA_LAYOUT } from '../keyboard/layout';
 import { segment, stripInvisible } from '../khmer/segment';
 import { toWords } from '../typing/engine';
 
@@ -107,4 +108,63 @@ export function buildPassage(
     words.push(...entry.words);
   }
   return words.slice(0, wordCount);
+}
+
+/**
+ * Word ceiling for a pasted quote. One `<Word>` mounts per word, so pasting a
+ * whole article would put thousands of components on screen for a passage
+ * nobody types to the end of. Well above the 150 a timed run uses.
+ */
+export const MAX_QUOTE_WORDS = 500;
+
+/**
+ * Every codepoint a NiDA key can produce, plus the two word separators.
+ *
+ * Derived from the table rather than hand-listed, so it can never drift from
+ * `nida.json` — and so it correctly rejects things that merely *look*
+ * typeable, such as Latin digits, whose keys carry ១២៣ instead.
+ * A ligature key (`ាំ`) contributes each of its codepoints separately, which is
+ * right: both halves are reachable on their own keys elsewhere.
+ */
+const TYPEABLE: ReadonlySet<string> = new Set([
+  ' ',
+  // Not typed, but `toWords` needs it intact to find the boundary before it
+  // strips it — so it must survive the filter rather than count as removed.
+  '\u200B',
+  ...Object.values(NIDA_LAYOUT).flatMap((mapping) =>
+    Object.values(mapping).flatMap((cp) => (cp ? [...cp] : [])),
+  ),
+]);
+
+export interface ParsedQuote {
+  words: string[];
+  /** Codepoints dropped because no NiDA key produces them. */
+  removed: number;
+  /** True when the paste was longer than `MAX_QUOTE_WORDS`. */
+  truncated: boolean;
+}
+
+/**
+ * Turn arbitrary pasted text into a passage the user can actually type.
+ *
+ * Same role as `parseCorpus`, different source: prose off a news site carries
+ * hard wraps, non-breaking spaces, curly quotes, em dashes and Latin digits,
+ * none of which a NiDA keyboard can produce. Leaving them in would strand the
+ * caret on a character with no key, so they are removed and counted — the
+ * caller reports the count rather than silently altering what was pasted.
+ */
+export function parseQuote(raw: string, maxWords = MAX_QUOTE_WORDS): ParsedQuote {
+  let kept = '';
+  let removed = 0;
+  for (const character of raw) {
+    if (TYPEABLE.has(character) || /\s/.test(character)) kept += character;
+    else removed++;
+  }
+
+  // Collapse AFTER stripping, not before: "ភាសា 2024 ខ្មែរ" loses the digits
+  // and would otherwise be left with two adjacent spaces, which `toWords`
+  // turns into a word consisting of nothing but a space — one the user has to
+  // press the space bar twice to get past.
+  const words = toWords(kept.replace(/\s+/g, ' ').trim());
+  return { words: words.slice(0, maxWords), removed, truncated: words.length > maxWords };
 }

@@ -1,5 +1,7 @@
 import {
-  looksLikeSqlite,
+  MAX_EXPORT_BYTES,
+  parseExport,
+  type ExportPayload,
   type KeystrokeRecord,
   type SessionRecord,
   type StoredSession,
@@ -131,6 +133,9 @@ export const recentSessions = (limit = 30): Promise<StoredSession[]> =>
 export const exportDatabase = (): Promise<Uint8Array<ArrayBuffer>> =>
   call<Uint8Array<ArrayBuffer>>({ op: 'exportDatabase' });
 
+/** The JSON backup format (F-02) — see `schema.ts` for the shape and caps. */
+export const exportJson = (): Promise<ExportPayload> => call<ExportPayload>({ op: 'exportJson' });
+
 /**
  * Rarely-seen targets are excluded from every ranking: one miss out of one
  * attempt is 0% accuracy and would otherwise sit at the top of the list forever.
@@ -149,12 +154,33 @@ export const slowestCodepoints = (limit = 8, minAttempts = MIN_ATTEMPTS): Promis
 export const sessionTrend = (limit = 30): Promise<TrendPoint[]> =>
   call<TrendPoint[]>({ op: 'sessionTrend', limit });
 
-export async function importDatabase(bytes: Uint8Array): Promise<void> {
-  // Checked before it crosses the boundary: an import replaces the user's whole
-  // history, so a wrong file should fail with a sentence they can act on rather
-  // than whatever the VFS throws.
-  if (!looksLikeSqlite(bytes)) {
-    throw new Error('That file is not a SQLite database.');
+/**
+ * Replaces the user's entire history with the sessions in a JSON export.
+ *
+ * Validation happens here, on the main thread, before anything crosses to the
+ * worker — an import replaces the user's whole history, so a bad file should
+ * fail with a sentence the user can act on rather than whatever a half-applied
+ * write throws. The size cap runs before `JSON.parse` even sees the text: a
+ * hostile multi-hundred-MB string is expensive to parse regardless of what it
+ * contains.
+ */
+export async function importDatabase(jsonText: string): Promise<void> {
+  const byteLength = new TextEncoder().encode(jsonText).length;
+  if (byteLength > MAX_EXPORT_BYTES) {
+    const limitMb = Math.round(MAX_EXPORT_BYTES / (1024 * 1024));
+    throw new Error(`That file is larger than the ${limitMb} MB import limit.`);
   }
-  await call<void>({ op: 'importDatabase', bytes });
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(jsonText);
+  } catch {
+    throw new Error('That file is not valid JSON.');
+  }
+
+  const data = parseExport(parsed);
+  await call<void>({ op: 'importExport', data });
 }
+
+/** F-06: drops the OPFS database file itself — see `db.worker.ts` for why. */
+export const clearAllData = (): Promise<void> => call<void>({ op: 'clearAllData' });

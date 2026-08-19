@@ -8,11 +8,15 @@
  * module, so callers never learn which backend holds what.
  */
 import type { InputMode } from '../keyboard/nida';
+// `export { x as y } from` re-exports only — it does not bind a local name —
+// so the database's clearAllData needs its own import to be callable below.
+import { clearAllData as clearDatabase } from './db';
 
 // Session history is SQLite in a Web Worker. Re-exported through this module so
 // nothing outside `src/storage/` ever imports the worker or the schema directly.
 export {
   exportDatabase,
+  exportJson,
   importDatabase,
   initDatabase,
   onDbStatus,
@@ -24,7 +28,7 @@ export {
   worstSubscripts,
   type DbStatus,
 } from './db';
-export type { KeystrokeRecord, SessionRecord, StoredSession } from './schema';
+export type { ExportPayload, KeystrokeRecord, SessionRecord, StoredSession } from './schema';
 export type { ClusterStat, CodepointStat, SubscriptStat, TrendPoint } from './analytics';
 
 export type Theme = 'light' | 'dark';
@@ -32,9 +36,23 @@ export type Theme = 'light' | 'dark';
 export interface Settings {
   inputMode: InputMode;
   theme: Theme;
+  showKeyboard: boolean;
+  /** Text the user pasted to type instead of the corpus, or null for corpus. */
+  quote: string | null;
 }
 
+/**
+ * Ceiling on a stored quote, in characters. localStorage is a shared ~5MB
+ * budget for the whole origin; a pasted book would evict the settings it
+ * shares a key with. Far more than MAX_QUOTE_WORDS needs.
+ */
+const MAX_QUOTE_CHARS = 20_000;
+
 const SETTINGS_KEY = 'knt.settings';
+// Written by the removed learn-as-you-type layout feature. Kept only so that
+// "Clear all my data" still deletes what older versions left behind.
+const OS_LAYOUT_KEY = 'knt.oslayout';
+
 
 /** Dark unless the machine explicitly asks for light — this is a focus tool. */
 function systemTheme(): Theme {
@@ -45,7 +63,7 @@ function systemTheme(): Theme {
 
 export function defaultSettings(): Settings {
   // Remap is the default input mode because it needs nothing installed.
-  return { inputMode: 'remap', theme: systemTheme() };
+  return { inputMode: 'remap', theme: systemTheme(), showKeyboard: true, quote: null };
 }
 
 export function loadSettings(): Settings {
@@ -62,6 +80,14 @@ export function loadSettings(): Settings {
         ? stored.inputMode
         : defaults.inputMode,
       theme: stored?.theme === 'light' || stored?.theme === 'dark' ? stored.theme : defaults.theme,
+      showKeyboard:
+        typeof stored?.showKeyboard === 'boolean' ? stored.showKeyboard : defaults.showKeyboard,
+      // Truncated rather than rejected: a hand-edited or half-written value
+      // should cost the user the tail of a quote, not their whole passage.
+      quote:
+        typeof stored?.quote === 'string' && stored.quote.length > 0
+          ? stored.quote.slice(0, MAX_QUOTE_CHARS)
+          : defaults.quote,
     };
   } catch {
     // Private-window Safari and locked-down browsers throw on access, and a
@@ -77,5 +103,29 @@ export function saveSettings(settings: Settings): void {
   } catch {
     // Storage disabled or full. The setting applies for this session and simply
     // will not survive a reload — not worth interrupting the user over.
+  }
+}
+
+
+
+/**
+ * F-06 "Clear all my data": the button says *all*, so this drops the OPFS
+ * database (see `db.worker.ts` `clearAllData` for why a table `DELETE` isn't
+ * enough) and removes the settings and observed-layout keys, not just the
+ * session history.
+ */
+export async function clearAllData(): Promise<void> {
+  await clearDatabase();
+  try {
+    localStorage.removeItem(SETTINGS_KEY);
+  } catch {
+    // Same reasoning as saveSettings(): storage access can throw, and a
+    // preference surviving a "clear everything" click is not worth failing
+    // the whole operation over when the database wipe already succeeded.
+  }
+  try {
+    localStorage.removeItem(OS_LAYOUT_KEY);
+  } catch {
+    // Same reasoning as above.
   }
 }

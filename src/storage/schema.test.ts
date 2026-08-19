@@ -1,13 +1,18 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import sqlite3InitModule from '@sqlite.org/sqlite-wasm';
 import {
+  EXPORT_FORMAT,
+  EXPORT_VERSION,
   INSERT_KEYSTROKE,
   INSERT_SESSION,
+  MAX_EXPORT_KEYSTROKES,
+  MAX_EXPORT_SESSIONS,
   MIGRATIONS,
   PRAGMAS,
   RECENT_SESSIONS,
-  looksLikeSqlite,
+  parseExport,
   pendingMigrations,
+  type ExportPayload,
 } from './schema';
 import { CP } from '../khmer/__fixtures__/khmer';
 
@@ -265,18 +270,126 @@ describe('pendingMigrations', () => {
   });
 });
 
-describe('looksLikeSqlite', () => {
-  it('accepts a database this app actually produced', () => {
-    addSession(1_000);
-    expect(looksLikeSqlite(sqlite3.capi.sqlite3_js_db_export(db.pointer))).toBe(true);
+describe('parseExport', () => {
+  /** A minimal but valid export — one session with one keystroke. */
+  const validPayload = (): ExportPayload => ({
+    format: EXPORT_FORMAT,
+    version: EXPORT_VERSION,
+    exportedAt: 1_700_000_000_000,
+    sessions: [
+      {
+        startedAt: 1_000,
+        mode: 'time:30',
+        durationMs: 30_000,
+        cpm: 210,
+        accuracy: 0.9,
+        keystrokes: [
+          {
+            targetCodepoint: CP.KA,
+            targetCluster: CP.KA,
+            subscript: false,
+            typedCodepoint: CP.KA,
+            correct: true,
+            msSincePrev: 120,
+          },
+        ],
+      },
+    ],
   });
 
-  it('rejects a file that is not a database', () => {
-    expect(looksLikeSqlite(new TextEncoder().encode('this is not a database at all'))).toBe(false);
+  it('round-trips a valid export unchanged', () => {
+    const payload = validPayload();
+    expect(parseExport(payload)).toEqual(payload);
   });
 
-  it('rejects a truncated file rather than reading past the end', () => {
-    expect(looksLikeSqlite(new TextEncoder().encode('SQLite'))).toBe(false);
-    expect(looksLikeSqlite(new Uint8Array(0))).toBe(false);
+  it('accepts a session with no keystrokes', () => {
+    const payload = validPayload();
+    payload.sessions[0]!.keystrokes = [];
+    expect(parseExport(payload).sessions[0]?.keystrokes).toEqual([]);
+  });
+
+  it('accepts a null targetCodepoint and targetCluster', () => {
+    const payload = validPayload();
+    payload.sessions[0]!.keystrokes[0]!.targetCodepoint = null;
+    payload.sessions[0]!.keystrokes[0]!.targetCluster = null;
+    expect(() => parseExport(payload)).not.toThrow();
+  });
+
+  it('rejects the wrong format string', () => {
+    const payload: unknown = { ...validPayload(), format: 'some-other-app/export' };
+    expect(() => parseExport(payload)).toThrow(/not a Khmer NiDA Trainer export/);
+  });
+
+  it('rejects a missing format entirely', () => {
+    expect(() => parseExport({})).toThrow(/not a Khmer NiDA Trainer export/);
+  });
+
+  it('rejects an unsupported version with a distinct message for a newer one', () => {
+    const payload = { ...validPayload(), version: EXPORT_VERSION + 1 };
+    expect(() => parseExport(payload)).toThrow(/newer version/);
+  });
+
+  it('rejects an unsupported older version', () => {
+    const payload = { ...validPayload(), version: 0 };
+    expect(() => parseExport(payload)).toThrow(/no longer supported/);
+  });
+
+  it('rejects a non-object payload', () => {
+    expect(() => parseExport(null)).toThrow();
+    expect(() => parseExport('a string')).toThrow();
+    expect(() => parseExport(42)).toThrow();
+  });
+
+  it('rejects the whole file on one malformed session, naming its index', () => {
+    const payload = validPayload();
+    payload.sessions.push({ ...payload.sessions[0]!, accuracy: 1.5 });
+    expect(() => parseExport(payload)).toThrow(/Session 1: accuracy/);
+    // The first, valid session does not save it — the whole file is rejected.
+  });
+
+  it('rejects the whole file on one malformed keystroke, naming session and keystroke index', () => {
+    const payload = validPayload();
+    payload.sessions[0]!.keystrokes.push({
+      ...payload.sessions[0]!.keystrokes[0]!,
+      msSincePrev: -1,
+    });
+    expect(() => parseExport(payload)).toThrow(/Session 0 keystroke 1: msSincePrev/);
+  });
+
+  it('rejects a non-integer msSincePrev', () => {
+    const payload = validPayload();
+    payload.sessions[0]!.keystrokes[0]!.msSincePrev = 1.5;
+    expect(() => parseExport(payload)).toThrow(/msSincePrev/);
+  });
+
+  it('rejects accuracy outside 0..1', () => {
+    const payload = validPayload();
+    payload.sessions[0]!.accuracy = -0.1;
+    expect(() => parseExport(payload)).toThrow(/accuracy/);
+  });
+
+  it('rejects a non-finite number', () => {
+    const payload = validPayload();
+    payload.sessions[0]!.cpm = Infinity;
+    expect(() => parseExport(payload)).toThrow(/cpm/);
+  });
+
+  it('enforces the session cap', () => {
+    const payload = validPayload();
+    payload.sessions = Array.from({ length: MAX_EXPORT_SESSIONS + 1 }, () => payload.sessions[0]!);
+    expect(() => parseExport(payload)).toThrow(new RegExp(`over the ${MAX_EXPORT_SESSIONS} limit`));
+  });
+
+  it('enforces the total keystroke cap across all sessions', () => {
+    const payload = validPayload();
+    // One session carrying more keystrokes than the cap allows, rather than
+    // MAX_EXPORT_KEYSTROKES+1 real array entries — same check, far cheaper to
+    // build.
+    const keystroke = payload.sessions[0]!.keystrokes[0]!;
+    payload.sessions[0]!.keystrokes = Array.from(
+      { length: MAX_EXPORT_KEYSTROKES + 1 },
+      () => keystroke,
+    );
+    expect(() => parseExport(payload)).toThrow(/more than .* keystrokes/);
   });
 });

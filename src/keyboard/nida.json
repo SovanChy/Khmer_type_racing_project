@@ -1,27 +1,241 @@
 {
-  "verified": false,
-
-  "TODO": [
-    "EVERY MAPPING IN THIS FILE IS A PLACEHOLDER. NONE OF IT IS THE NiDA LAYOUT.",
-    "The values below are deliberately sequential (U+1780, U+1781, U+1782, ...)",
-    "so that they are obviously synthetic and cannot be mistaken for real data.",
-    "They exist only to pin the file's SHAPE and to give the validation test",
-    "something to run against.",
-    "",
-    "Replace the whole `keys` object with the verified table from the official",
-    "NiDA layout, then set `verified` to true. While `verified` is false the app",
-    "shows a blocking warning in remap mode.",
-    "",
-    "Keys are KeyboardEvent.code values (physical position, layout-independent).",
-    "Each layer holds exactly one codepoint, or null if that layer is unmapped.",
-    "Expect roughly 50 entries: 26 letters, 10 digits, and the punctuation keys."
-  ],
-
+  "verified": true,
+  "source": "Read from the Khmer (NIDA) layout installed on Windows (KLID 00010453, KBDKNI.DLL) via ToUnicodeEx over PS/2 set-1 scan codes. Not transcribed by hand and not generated from memory. Vouched for by the user as their working NiDA layout; re-dumped and confirmed identical before verifying.",
   "keys": {
-    "KeyQ": { "base": "\u1780", "shift": "\u1781", "altgr": null },
-    "KeyA": { "base": "\u1782", "shift": "\u1783", "altgr": "\u1784" },
-    "KeyZ": { "base": "\u1785", "shift": "\u1786", "altgr": null },
-    "Digit1": { "base": "\u1787", "shift": "\u1788", "altgr": null },
-    "Semicolon": { "base": "\u1789", "shift": "\u178A", "altgr": null }
+    "Backquote": {
+      "base": "«",
+      "shift": "»",
+      "altgr": "‍"
+    },
+    "Digit1": {
+      "base": "១",
+      "shift": "!",
+      "altgr": "‌"
+    },
+    "Digit2": {
+      "base": "២",
+      "shift": "ៗ",
+      "altgr": "@"
+    },
+    "Digit3": {
+      "base": "៣",
+      "shift": "\"",
+      "altgr": "៑"
+    },
+    "Digit4": {
+      "base": "៤",
+      "shift": "៛",
+      "altgr": "$"
+    },
+    "Digit5": {
+      "base": "៥",
+      "shift": "%",
+      "altgr": "€"
+    },
+    "Digit6": {
+      "base": "៦",
+      "shift": "៍",
+      "altgr": "៙"
+    },
+    "Digit7": {
+      "base": "៧",
+      "shift": "័",
+      "altgr": "៚"
+    },
+    "Digit8": {
+      "base": "៨",
+      "shift": "៏",
+      "altgr": "*"
+    },
+    "Digit9": {
+      "base": "៩",
+      "shift": "(",
+      "altgr": "{"
+    },
+    "Digit0": {
+      "base": "០",
+      "shift": ")",
+      "altgr": "}"
+    },
+    "Minus": {
+      "base": "ឥ",
+      "shift": "៌",
+      "altgr": "×"
+    },
+    "Equal": {
+      "base": "ឲ",
+      "shift": "=",
+      "altgr": "៎"
+    },
+    "KeyQ": {
+      "base": "ឆ",
+      "shift": "ឈ",
+      "altgr": null
+    },
+    "KeyW": {
+      "base": "ឹ",
+      "shift": "ឺ",
+      "altgr": null
+    },
+    "KeyE": {
+      "base": "េ",
+      "shift": "ែ",
+      "altgr": "ឯ"
+    },
+    "KeyR": {
+      "base": "រ",
+      "shift": "ឬ",
+      "altgr": "ឫ"
+    },
+    "KeyT": {
+      "base": "ត",
+      "shift": "ទ",
+      "altgr": null
+    },
+    "KeyY": {
+      "base": "យ",
+      "shift": "ួ",
+      "altgr": null
+    },
+    "KeyU": {
+      "base": "ុ",
+      "shift": "ូ",
+      "altgr": null
+    },
+    "KeyI": {
+      "base": "ិ",
+      "shift": "ី",
+      "altgr": "ឦ"
+    },
+    "KeyO": {
+      "base": "ោ",
+      "shift": "ៅ",
+      "altgr": "ឱ"
+    },
+    "KeyP": {
+      "base": "ផ",
+      "shift": "ភ",
+      "altgr": "ឰ"
+    },
+    "BracketLeft": {
+      "base": "ៀ",
+      "shift": "ឿ",
+      "altgr": "ឩ"
+    },
+    "BracketRight": {
+      "base": "ឪ",
+      "shift": "ឧ",
+      "altgr": "ឳ"
+    },
+    "Backslash": {
+      "base": "ឮ",
+      "shift": "ឭ",
+      "altgr": "\\"
+    },
+    "KeyA": {
+      "base": "ា",
+      "shift": "ាំ",
+      "altgr": null
+    },
+    "KeyS": {
+      "base": "ស",
+      "shift": "ៃ",
+      "altgr": null
+    },
+    "KeyD": {
+      "base": "ដ",
+      "shift": "ឌ",
+      "altgr": null
+    },
+    "KeyF": {
+      "base": "ថ",
+      "shift": "ធ",
+      "altgr": null
+    },
+    "KeyG": {
+      "base": "ង",
+      "shift": "អ",
+      "altgr": null
+    },
+    "KeyH": {
+      "base": "ហ",
+      "shift": "ះ",
+      "altgr": null
+    },
+    "KeyJ": {
+      "base": "្",
+      "shift": "ញ",
+      "altgr": null
+    },
+    "KeyK": {
+      "base": "ក",
+      "shift": "គ",
+      "altgr": null
+    },
+    "KeyL": {
+      "base": "ល",
+      "shift": "ឡ",
+      "altgr": null
+    },
+    "Semicolon": {
+      "base": "ើ",
+      "shift": "ោះ",
+      "altgr": "៖"
+    },
+    "Quote": {
+      "base": "់",
+      "shift": "៉",
+      "altgr": "ៈ"
+    },
+    "KeyZ": {
+      "base": "ឋ",
+      "shift": "ឍ",
+      "altgr": null
+    },
+    "KeyX": {
+      "base": "ខ",
+      "shift": "ឃ",
+      "altgr": null
+    },
+    "KeyC": {
+      "base": "ច",
+      "shift": "ជ",
+      "altgr": null
+    },
+    "KeyV": {
+      "base": "វ",
+      "shift": "េះ",
+      "altgr": null
+    },
+    "KeyB": {
+      "base": "ប",
+      "shift": "ព",
+      "altgr": null
+    },
+    "KeyN": {
+      "base": "ន",
+      "shift": "ណ",
+      "altgr": null
+    },
+    "KeyM": {
+      "base": "ម",
+      "shift": "ំ",
+      "altgr": null
+    },
+    "Comma": {
+      "base": "ុំ",
+      "shift": "ុះ",
+      "altgr": ","
+    },
+    "Period": {
+      "base": "។",
+      "shift": "៕",
+      "altgr": "."
+    },
+    "Slash": {
+      "base": "៊",
+      "shift": "?",
+      "altgr": "/"
+    }
   }
 }

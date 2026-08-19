@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { segment, stripInvisible } from './segment';
+import { segment, standalone, stripInvisible } from './segment';
 import { CLUSTER_CASES, CODEPOINTS, CP, LANGUAGE, LANGUAGE_ZWSP_KHMER } from './__fixtures__/khmer';
 
 describe('fixture integrity', () => {
@@ -49,5 +49,24 @@ describe('stripInvisible', () => {
 
   it('handles the empty string', () => {
     expect(stripInvisible('')).toBe('');
+  });
+});
+
+describe('standalone', () => {
+  it('gives a dependent vowel a dotted circle to sit on', () => {
+    expect(standalone(CP.SRA_AA)).toBe('\u25CC' + CP.SRA_AA);
+  });
+
+  it('gives a coeng sequence one dotted circle, not one per codepoint', () => {
+    // The R2 strip shows ្គ as a single cell, so only the leading mark decides.
+    expect(standalone(CP.COENG + CP.KA)).toBe('\u25CC' + CP.COENG + CP.KA);
+  });
+
+  it('leaves a base consonant alone — it has nothing to attach to', () => {
+    expect(standalone(CP.KA)).toBe(CP.KA);
+  });
+
+  it('handles the empty string', () => {
+    expect(standalone('')).toBe('');
   });
 });
