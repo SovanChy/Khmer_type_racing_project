@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { buildDrillPassage, buildPassage, loadCorpus, type CorpusEntry } from '../corpus';
-import { KeyboardHint } from '../keyboard/KeyboardHint';
+import { HINT_KEYS, KeyboardHint } from '../keyboard/KeyboardHint';
 import { KeyboardInput } from '../keyboard/KeyboardInput';
 import type { KeyAction } from '../keyboard/nida';
 import {
@@ -12,11 +12,31 @@ import {
   targetSites,
   wordProps,
   CLUSTERS_PER_WORD,
+  type CellStatus,
   type Score,
 } from './engine';
-import { Word, wordRenders, CELL_CLASS } from './Word';
+import { Word, wordRenders } from './Word';
+import { standalone } from '../khmer/segment';
 import { saveSession, worstClusters, type KeystrokeRecord } from '../storage';
 import { useStore } from '../store';
+
+/**
+ * Palette for the cluster strip only — deliberately not `CELL_CLASS`, which
+ * styles inline text inside the passage where a filled box would wreck the
+ * line box. Here each piece is a standalone cell whose whole job is to be seen
+ * without looking for it, so it gets a border, a fill and four times the size.
+ */
+const DETAIL_CLASS: Record<CellStatus, string> = {
+  correct: 'border-success/50 bg-success/10 text-success',
+  // The underline carries over from CELL_CLASS for the same reason it exists
+  // there: the non-colour cue that keeps this readable under red/green colour
+  // blindness. Do not drop it as redundant with the fill.
+  incorrect: 'border-error bg-error/20 text-error underline decoration-error/60 underline-offset-8',
+  // Dimmed success, not dimmed default: partial means some codepoints in the
+  // cluster landed correct and none are wrong yet.
+  partial: 'border-success/30 bg-success/5 text-success/70',
+  pending: 'border-border text-muted',
+};
 
 /**
  * How hard drill mode leans on weak clusters, against a baseline weight of 1
@@ -77,14 +97,6 @@ export function TypingTest() {
   // each word displays both derive from this number, so nothing else has to move.
   const [caret, setCaret] = useState(0);
 
-  // R2: which codepoint the last keypress got wrong, for the keyboard hint's
-  // red key. Safe for the performance invariant even though it is state that
-  // changes every keystroke: `setCaret` above already re-renders TypingTest on
-  // every keystroke, and <Word>'s memo depends only on `wordProps`, which this
-  // never touches -- so it costs nothing beyond a render TypingTest was doing
-  // anyway.
-  const [wrongCp, setWrongCp] = useState<string | null>(null);
-
   // The full typed buffer and the running counters live in refs: mutating them
   // costs no render, which is what keeps a keypress off the rest of the passage.
   const typed = useRef<string[]>([]);
@@ -142,7 +154,6 @@ export function TypingTest() {
     pauseStartedAt.current = null;
     setPaused(false);
     setSaveState(undefined);
-    setWrongCp(null);
 
     const count = config.kind === 'words' ? config.count : TIMED_PASSAGE_WORDS;
     setWords(
@@ -310,9 +321,6 @@ export function TypingTest() {
 
     stats.current.totalPresses += 1;
     if (correct) stats.current.correctPresses += 1;
-    // R2: a correct press is never "wrong", so null it out immediately rather
-    // than leaving a stale red key lit on the keyboard hint.
-    setWrongCp(correct ? null : action.cp);
 
     keystrokes.current.push({
       targetCodepoint: wanted,
@@ -383,6 +391,23 @@ export function TypingTest() {
         totalCps={targetCps.length}
       />
 
+      {/*
+        Passage and keyboard side by side from `xl` up, stacked below it.
+        Stacking cost about 500px of height, which pushed the keyboard off the
+        bottom of a short laptop screen exactly when a learner needs to see the
+        text and the key at the same moment. Splitting is only possible on a
+        wide viewport — the diagram's narrowest row is ~776px and does not
+        usefully shrink — so this is a two-column layout where there is room
+        and the old stack everywhere else.
+      */}
+      {/*
+        [&>*]:min-w-0 is load-bearing, not tidying: a grid item defaults to
+        min-width:auto, so the keyboard panel would refuse to shrink below its
+        ~810px content and push the whole PAGE into horizontal scroll on a
+        phone. Zeroing the floor hands the overflow back to the panel's own
+        overflow-x-auto, where it belongs.
+      */}
+      <div className="grid gap-6 [&>*]:min-w-0 xl:grid-cols-[minmax(24rem,1fr)_auto] xl:items-start">
       <KeyboardInput
         onAction={handleAction}
         paused={paused}
@@ -443,32 +468,26 @@ export function TypingTest() {
         <div
           aria-hidden
           lang="km"
-          className="font-khmer flex h-[1.6em] items-center gap-1.5 text-lg leading-none"
+          className="font-khmer mt-4 flex h-20 items-center gap-2"
           style={{ visibility: activeDetail.length > 0 ? 'visible' : 'hidden' }}
         >
-          {activeDetail.map((cell, i) => {
-            // A combining mark (coeng, a vowel sign, ...) has nothing to
-            // stack onto in a lone cell, so it's shown on U+25CC DOTTED
-            // CIRCLE — the standard way to display a combining character
-            // standalone. A base consonant is not a Mark and gets no circle.
-            const dotted = /\p{M}/u.test(cell.text.charAt(0)) ? '◌' : '';
-            return (
-              <span key={i} className={CELL_CLASS[cell.status]}>
-                {dotted}
-                {cell.text}
-              </span>
-            );
-          })}
+          {activeDetail.map((cell, i) => (
+            // standalone(): a coeng or a vowel sign has nothing to stack onto
+            // in a lone cell, so it gets a dotted circle to sit on.
+            <span
+              key={i}
+              className={`flex h-16 min-w-16 items-center justify-center rounded-lg border-2 px-3 text-4xl leading-[1.3] ${DETAIL_CLASS[cell.status]}`}
+            >
+              {standalone(cell.text)}
+            </span>
+          ))}
         </div>
       </KeyboardInput>
 
       {showKeyboard && (
-        <KeyboardHint
-          nextCp={sites[caret]?.codepoint ?? null}
-          nextCluster={sites[caret]?.cluster ?? null}
-          wrongCp={wrongCp}
-        />
+        <KeyboardHint nextCps={sites.slice(caret, caret + HINT_KEYS).map((s) => s.codepoint)} />
       )}
+      </div>
 
       {/* Immediately after the input in DOM order, so Tab then Enter restarts. */}
       <button

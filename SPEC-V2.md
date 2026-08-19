@@ -148,7 +148,7 @@ dictionary feature where a user can tap on the word and look up what it means. T
 
 
 ### R5
-- indicator when timr is out
+- indicator when timer is out. Like an alert. Because the timer is over, there wasn't an alert and I just keep typing and wondering why it didn't work
 
 ---
 

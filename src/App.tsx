@@ -1,6 +1,5 @@
 import { useEffect } from 'react';
 import { NIDA, type InputMode } from './keyboard/nida';
-import { seedFromBrowser } from './keyboard/observed';
 import { TypingTest } from './typing/TypingTest';
 import { Analytics } from './Analytics';
 import { DataPanel } from './DataPanel';
@@ -59,7 +58,6 @@ function ThemeToggle() {
 export function App() {
   const inputMode = useStore((s) => s.inputMode);
   const theme = useStore((s) => s.theme);
-  const noteLayoutLearned = useStore((s) => s.noteLayoutLearned);
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark');
@@ -69,19 +67,14 @@ export function App() {
   // tab is told immediately instead of after a run it cannot store.
   useEffect(() => initDatabase(), []);
 
-  // Unconditional: cheap, and the user can switch to OS mode later even if
-  // remap is selected now. seedFromBrowser() never rejects (see observed.ts),
-  // but void-catch defensively anyway so a mount effect can never crash the app.
-  useEffect(() => {
-    void seedFromBrowser()
-      .then(noteLayoutLearned)
-      .catch(() => {});
-  }, [noteLayoutLearned]);
-
-  const unverified = inputMode === 'remap' && !NIDA.verified;
+  // Both modes now diagram nida.json, so the caveat is no longer remap-only.
+  const unverified = !NIDA.verified;
 
   return (
-    <main className="mx-auto min-h-dvh max-w-4xl space-y-8 px-6 py-10">
+    // Wider only at xl, where TypingTest splits the passage and the keyboard
+    // into two columns — 4xl cannot hold both. Everything below xl keeps the
+    // old reading width.
+    <main className="mx-auto min-h-dvh max-w-4xl space-y-8 px-6 py-10 xl:max-w-[92rem]">
       <header className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-lg font-semibold">Khmer NiDA Typing Trainer</h1>
@@ -100,10 +93,10 @@ export function App() {
           role="alert"
           className="rounded-md border border-amber-500/50 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300"
         >
-          <strong className="font-semibold">The NiDA layout table is not verified.</strong> Every
-          mapping in <code>nida.json</code> is a placeholder, so remap mode produces nonsense. Do
-          not practise on it — it would teach wrong muscle memory. Switch to OS layout mode to try
-          the trainer meanwhile.
+          <strong className="font-semibold">The NiDA layout table is not verified.</strong>{' '}
+          <code>nida.json</code> was read from the Khmer (NIDA) layout installed on this machine,
+          not hand-written — but no human has checked it against the official layout yet. Spot-check
+          the keys below before you practise on it.
         </p>
       )}
 

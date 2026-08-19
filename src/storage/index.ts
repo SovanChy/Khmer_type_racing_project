@@ -8,7 +8,6 @@
  * module, so callers never learn which backend holds what.
  */
 import type { InputMode } from '../keyboard/nida';
-import type { Layer, LayoutSource } from '../keyboard/layout';
 // `export { x as y } from` re-exports only — it does not bind a local name —
 // so the database's clearAllData needs its own import to be callable below.
 import { clearAllData as clearDatabase } from './db';
@@ -41,9 +40,10 @@ export interface Settings {
 }
 
 const SETTINGS_KEY = 'knt.settings';
+// Written by the removed learn-as-you-type layout feature. Kept only so that
+// "Clear all my data" still deletes what older versions left behind.
 const OS_LAYOUT_KEY = 'knt.oslayout';
 
-const LAYERS: readonly Layer[] = ['base', 'shift', 'altgr'];
 
 /** Dark unless the machine explicitly asks for light — this is a focus tool. */
 function systemTheme(): Theme {
@@ -91,43 +91,7 @@ export function saveSettings(settings: Settings): void {
   }
 }
 
-export function loadObservedLayout(): LayoutSource {
-  try {
-    const raw = localStorage.getItem(OS_LAYOUT_KEY);
-    if (raw === null) return {};
 
-    // Same reasoning as loadSettings(): localStorage is user-writable, so the
-    // parsed value is untrusted input -- validate every field rather than
-    // cast, or a hand-edited key wedges the app.
-    const stored = JSON.parse(raw) as unknown;
-    if (typeof stored !== 'object' || stored === null) return {};
-
-    const layout: LayoutSource = {};
-    for (const [code, mapping] of Object.entries(stored as Record<string, unknown>)) {
-      if (typeof mapping !== 'object' || mapping === null) continue;
-      const entry: Partial<Record<Layer, string>> = {};
-      for (const layer of LAYERS) {
-        const cp = (mapping as Record<string, unknown>)[layer];
-        if (typeof cp === 'string' && cp.length > 0) entry[layer] = cp;
-      }
-      layout[code] = entry;
-    }
-    return layout;
-  } catch {
-    // Private-window Safari and locked-down browsers throw on access, and a
-    // corrupt value throws on parse. Reading this must never take the app down.
-    return {};
-  }
-}
-
-export function saveObservedLayout(layout: LayoutSource): void {
-  try {
-    localStorage.setItem(OS_LAYOUT_KEY, JSON.stringify(layout));
-  } catch {
-    // Storage disabled or full. The learned layout applies for this session
-    // and simply will not survive a reload -- not worth interrupting typing over.
-  }
-}
 
 /**
  * F-06 "Clear all my data": the button says *all*, so this drops the OPFS
