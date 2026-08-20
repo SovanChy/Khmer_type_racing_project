@@ -169,7 +169,7 @@ export function App() {
           enter is at your own risk and remains your responsibility. This trainer is provided
           as-is, without warranty of any kind and with no liability for how it is used.
         </p>
-        <p>© 2026 SovanChy. All rights reserved.</p>
+        <p>© 2026 SovanChy. Free to use, not to sell.</p>
       </footer>
     </main>
   );

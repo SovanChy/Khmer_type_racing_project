@@ -2,7 +2,7 @@
   "name": "khmer-nida-trainer",
   "private": true,
   "version": "0.0.0",
-  "license": "UNLICENSED",
+  "license": "PolyForm-Noncommercial-1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",

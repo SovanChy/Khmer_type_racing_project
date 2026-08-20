@@ -1,9 +1,10 @@
 # Third-party data
 
-The application source in `src/` is © 2026 SovanChy, all rights reserved. The
-files listed here are not, and carry their own terms. Each is shipped as a
-standalone data file that the application reads at runtime — none of them is
-compiled into the bundle, and each can be replaced without rebuilding the app.
+The application source in `src/` is © 2026 SovanChy, noncommercial use only
+(see LICENSE). The files listed here are not covered by it, and carry their
+own terms. Each is shipped as a standalone data file that the application
+reads at runtime — none of them is compiled into the bundle, and each can be
+replaced without rebuilding the app.
 
 ## `public/dict.json`
 
