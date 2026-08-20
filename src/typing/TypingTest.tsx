@@ -500,7 +500,11 @@ export function TypingTest() {
           // function identity every render and would re-render the passage on
           // every keystroke — see the memo note in Word.tsx.
           onClick={handleWordClick}
-          className={`font-khmer h-[6.6em] overflow-hidden text-2xl leading-[2.2] sm:text-3xl ${
+          // The two cursor/hover rules are pure CSS on the parent, reaching the
+          // words by attribute. Deliberately not a prop on <Word>: a hover
+          // prop would change identity per word and defeat the memo the
+          // passage depends on. This costs zero re-renders.
+          className={`font-khmer h-[6.6em] overflow-hidden text-2xl leading-[2.2] sm:text-3xl [&_[data-word]]:cursor-pointer [&_[data-word]:hover]:bg-caret/10 [&_[data-word]:hover]:rounded-sm ${
             ended ? 'opacity-50' : ''
           }`}
           lang="km"
@@ -530,11 +534,22 @@ export function TypingTest() {
         {/*
           R4: under the passage and inside its column, so the word and its
           meaning read together at every width — in the two-column layout the
-          keyboard diagram would otherwise sit between them. Absent from the
-          DOM entirely until a word is tapped.
+          keyboard diagram would otherwise sit between them.
+
+          The prompt sits in the panel's own slot rather than beside the
+          passage: it says what will happen HERE, and then the thing it
+          promised appears in the space it was occupying. Nothing about the
+          dictionary was visible before this — the words carry no affordance of
+          their own, so a feature nobody could guess at was reachable only by
+          clicking text that looked inert. A hover cue alone would not have
+          fixed that; it is invisible until the pointer is already on a word.
         */}
-        {definition !== null && (
+        {definition !== null ? (
           <Definition word={definition} onClose={() => setDefinition(null)} />
+        ) : (
+          <p className="text-muted text-sm">
+            Click any word above to look it up in the dictionary.
+          </p>
         )}
       </div>
 
