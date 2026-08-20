@@ -118,7 +118,14 @@ export function keyFor(cp: string, source: LayoutSource): { code: string; layer:
   // appear as keys in a LayoutSource (nida.json and the observed layout both
   // key by the letter/digit/punctuation position a layer applies TO, not by
   // the modifier itself), so this scan can never return one.
-  if (cp === ' ') return { code: 'Space', layer: 'base' };
+  // Space is the one key nida.json does not cover: the ToUnicodeEx dump reads
+  // letter, digit and punctuation positions, and never captured the space bar.
+  // On NiDA a real U+0020 is Shift+Space -- reported by the user against their
+  // installed layout, not measured, which is why it lives here as a stated
+  // assumption rather than as a hand-written row in a file whose whole claim is
+  // that nothing in it was typed from memory. The hint teaches Shift+Space; the
+  // input stays lenient about it (see `resolveKey`).
+  if (cp === ' ') return { code: 'Space', layer: 'shift' };
   for (const layer of LAYERS) {
     for (const code of Object.keys(source)) {
       if (source[code]?.[layer] === cp) return { code, layer };

@@ -23,14 +23,85 @@ const DEFAULT_MAX_CLUSTERS = 12;
  * `stripInvisible()` over the whole passage first, as a literal reading of "strip
  * at load" would suggest, destroys every word boundary in the text.
  *
+ * Separators alone are not enough, though. Khmer writes no space between words,
+ * so most real text -- anything pasted off a web page -- carries neither ZWSP
+ * nor space, and every run between separators is several words long. That is
+ * what `segmentWords` is for.
+ *
  * Invariant: `toWords(t).join('') === stripInvisible(t)`.
  */
 export function toWords(text: string, maxClusters = DEFAULT_MAX_CLUSTERS): string[] {
+  // A ZWSP anywhere in the passage means someone marked the boundaries by hand.
+  // Take that as authoritative and add none of our own: the segmenter would
+  // re-split \u178A\u1794\u17CB\u1794\u17D2\u179A\u17B6\u17C6\u1798\u17BD\u1799 "sixteen" into \u178A\u1794\u17CB\u1794\u17D2\u179A\u17B6\u17C6 + \u1798\u17BD\u1799, and \u178A\u1794\u17CB\u1794\u17D2\u179A\u17B6\u17C6 is not a
+  // word anyone can look up. A space does not count -- in Khmer it separates
+  // phrases, not words, so it says nothing about where the words inside it are.
+  const authored = text.includes('\u200B');
+
   return text
     .split(/(?<=[\u200B ])/)
     .map(stripInvisible)
     .filter((word) => word.length > 0)
+    .flatMap((word) => (authored ? [word] : segmentWords(word)))
     .flatMap((word) => chunkByClusters(word, maxClusters));
+}
+
+/**
+ * The other half of the `Intl.Segmenter` rule: banned for grapheme clusters,
+ * required for word boundaries, because it carries a Khmer dictionary we cannot
+ * reproduce.
+ *
+ * Runs once per passage -- at paste time, or when the corpus is parsed -- never
+ * per keystroke and never during render, so the one-word-per-keypress invariant
+ * is untouched. Text that already carries ZWSP boundaries passes through
+ * unchanged; this only finds the boundaries a passage never marked.
+ *
+ * Guarded rather than assumed: Firefox only shipped `Intl.Segmenter` in 125, and
+ * an older browser should lose word boundaries, not fail to start.
+ */
+const WORD_SEGMENTER =
+  typeof Intl.Segmenter === 'function' ? new Intl.Segmenter('km', { granularity: 'word' }) : null;
+
+/** Split one separator-free run into words, punctuation riding on a word either side. */
+function segmentWords(run: string): string[] {
+  if (WORD_SEGMENTER === null) return [run];
+
+  // The offsets a cluster actually starts at. The segmenter's Khmer dictionary
+  // will cut a coeng stack open -- ក្ក្ក្ក comes back as ក្ក្ + ក្ក, stranding a
+  // dangling coeng that renders with a dotted circle -- which is the same
+  // failure that bans it for grapheme clusters. So a boundary it proposes only
+  // counts where a cluster begins.
+  const boundaries = new Set<number>();
+  let offset = 0;
+  for (const cluster of segment(run)) {
+    boundaries.add(offset);
+    offset += cluster.length;
+  }
+
+  const words: string[] = [];
+  // Punctuation with no word yet to attach to. A run can open with a khan, and
+  // a <Word> holding nothing but ។ is not something to put on screen.
+  let orphan = '';
+
+  for (const { segment: piece, isWordLike, index } of WORD_SEGMENTER.segment(run)) {
+    const last = words.length - 1;
+    const previous = words[last];
+
+    if (isWordLike && boundaries.has(index)) {
+      words.push(orphan + piece);
+      orphan = '';
+    } else if (previous === undefined) {
+      orphan += piece;
+    } else {
+      // A khan, a space or a quote is its own segment to the segmenter. It
+      // belongs to the word it follows -- and for a space that is load-bearing,
+      // since the user has to type it before the next word begins.
+      words[last] = previous + piece;
+    }
+  }
+
+  if (orphan !== '') words.push(orphan);
+  return words;
 }
 
 /** Cut an over-long word at cluster boundaries, never inside a stacked glyph. */

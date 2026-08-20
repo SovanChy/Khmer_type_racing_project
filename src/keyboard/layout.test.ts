@@ -33,7 +33,10 @@ describe('keyFor', () => {
   });
 
   it('special-cases space, which nida.json deliberately omits', () => {
-    expect(keyFor(' ', TABLE)).toEqual({ code: 'Space', layer: 'base' });
+    // Shift, not base: on NiDA a real space is Shift+Space, so the hint has to
+    // light the Shift keys alongside the space bar. Lighting the bar alone
+    // teaches a keypress that does not produce the character being asked for.
+    expect(keyFor(' ', TABLE)).toEqual({ code: 'Space', layer: 'shift' });
   });
 
   it('returns null for an unmapped codepoint', () => {

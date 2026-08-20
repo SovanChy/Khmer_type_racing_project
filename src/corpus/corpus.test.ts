@@ -15,6 +15,7 @@ import {
   LANGUAGE,
   MIXED_SCRIPTS,
   PASSAGE_SPACED,
+  PASSAGE_UNSEPARATED,
   PASSAGE_ZWSP,
   SREY,
 } from '../khmer/__fixtures__/khmer';
@@ -179,6 +180,15 @@ describe('parseQuote', () => {
     const parsed = parseQuote(LANGUAGE + CP.KHAN);
     expect(parsed.removed).toBe(0);
     expect(parsed.words.join('')).toContain(CP.KHAN);
+  });
+
+  it('finds word boundaries in prose that marks none', () => {
+    // The common case for "insert your own text": Khmer copied off a web page
+    // has no space and no ZWSP anywhere in it. One word per passage made every
+    // dictionary lookup ask about a phrase, so tapping a word returned nothing.
+    const { words } = parseQuote(PASSAGE_UNSEPARATED);
+    expect(words.length).toBeGreaterThan(1);
+    expect(words.join('')).toBe(PASSAGE_UNSEPARATED);
   });
 
   it('splits at a ZWSP without asking the user to type it', () => {

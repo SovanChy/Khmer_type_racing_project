@@ -1,4 +1,4 @@
-import { stripInvisible } from '../khmer/segment';
+import { segment, stripInvisible } from '../khmer/segment';
 
 /**
  * One dictionary entry: Chuon Nath 1967, an English gloss, and a modern Khmer
@@ -66,6 +66,60 @@ export function lookupIn(index: Map<string, Packed>, word: string): Entry | null
     en: en || undefined,
     modern: modern || undefined,
   };
+}
+
+/** Khmer and Latin digits. A numeral is a token of its own, never a headword. */
+const NUMERAL = /^[0-9០-៩៰-៹]+$/;
+
+/**
+ * Find a tapped word, splitting it when the segmenter handed us more than one.
+ *
+ * `Intl.Segmenter` keeps together things the dictionary catalogues apart. ខែសីហា
+ * "August" is one segment and two headwords (ខែ "month" + សីហា). Worse, UAX #29
+ * refuses to break between a letter and a digit at all, so ឆ្នាំ២០២៦នេះ arrives
+ * as a single word. None of those are headwords, and reporting "no entry" for
+ * them is wrong when every piece has a definition.
+ *
+ * Greedy longest match, left to right, over clusters — never codepoints, or a
+ * match could end inside a stacked glyph. All-or-nothing: a word with a piece
+ * that resolves to nothing returns nothing, rather than a confident half
+ * answer. That is what stops a proper noun from being explained as two
+ * unrelated syllables that happen to be in the dictionary.
+ */
+export function lookupWord(index: Map<string, Packed>, word: string): Entry[] {
+  const exact = lookupIn(index, word);
+  if (exact) return [exact];
+
+  const clusters = segment(foldWord(word));
+  const parts: Entry[] = [];
+
+  for (let i = 0; i < clusters.length; ) {
+    // Numerals first: a digit run is never a headword, and checking the
+    // dictionary first would decompose ២០២៦ into single digits if any one of
+    // them happens to be catalogued.
+    const digits = numeralRun(clusters, i);
+    if (digits > i) {
+      i = digits;
+      continue;
+    }
+
+    let end = clusters.length;
+    for (; end > i; end--) if (index.has(clusters.slice(i, end).join(''))) break;
+    if (end === i) return [];
+
+    const entry = lookupIn(index, clusters.slice(i, end).join(''));
+    if (entry) parts.push(entry);
+    i = end;
+  }
+
+  return parts;
+}
+
+/** Index just past the run of numerals starting at `from`, or `from` if none. */
+function numeralRun(clusters: string[], from: number): number {
+  let i = from;
+  while (i < clusters.length && NUMERAL.test(clusters[i] ?? '')) i++;
+  return i;
 }
 
 /**
@@ -141,6 +195,7 @@ function defaultFetch(): Promise<Record<string, Packed>> {
   });
 }
 
-export async function lookup(word: string): Promise<Entry | null> {
-  return lookupIn(await loadDict(), word);
+/** Empty when the word has no definition, one entry usually, more when it splits. */
+export async function lookup(word: string): Promise<Entry[]> {
+  return lookupWord(await loadDict(), word);
 }

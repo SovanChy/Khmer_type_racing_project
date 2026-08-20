@@ -15,6 +15,19 @@
 @theme {
   --font-khmer: 'Noto Sans Khmer Variable', sans-serif;
 
+  /* The width at which the passage and the keyboard diagram sit side by side.
+     The keyboard's widest row is 13 caps at 3.5rem plus gaps — 776px, 808px
+     with the card padding — and beside a 24rem passage column that needs
+     1266px of viewport. At full size the layout therefore fit `xl` by 14px,
+     less than a scrollbar, and spent every pixel above it on the keyboard: a
+     1366 laptop got a three-word ribbon to read.
+
+     The diagram scales to 0.9 above this breakpoint and back to full at 2xl
+     (see KeyboardHint), which puts the real floor at 1183px. This value keeps
+     ~100px over that, so a scrollbar or a notch of browser zoom cannot tip it.
+     Change it here: the page shell, the grid and the diagram all read it. */
+  --breakpoint-wide: 1280px;
+
   --color-bg: var(--bg);
   --color-surface: var(--surface);
   --color-fg: var(--fg);
