@@ -101,10 +101,11 @@ export function App() {
   const unverified = !NIDA.verified;
 
   return (
-    // Wider only at xl, where TypingTest splits the passage and the keyboard
-    // into two columns — 4xl cannot hold both. Everything below xl keeps the
-    // old reading width.
-    <main className="mx-auto min-h-dvh max-w-4xl space-y-6 px-6 py-8 xl:max-w-[92rem]">
+    // Wider only at `wide`, where TypingTest splits the passage and the
+    // keyboard into two columns — 4xl cannot hold both. Everything narrower
+    // keeps the old reading width. Both must switch at the same breakpoint: a
+    // two-column grid inside a 4xl shell has nowhere to put the second column.
+    <main className="mx-auto min-h-dvh max-w-4xl space-y-6 px-6 py-8 wide:max-w-[92rem]">
       <header className="card flex flex-wrap items-center justify-between gap-4 px-6 py-4">
         <div>
           <h1 className="text-caret text-xl font-bold">Khmer NiDA Typing Trainer</h1>

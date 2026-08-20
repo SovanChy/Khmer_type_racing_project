@@ -98,7 +98,12 @@ export function resolveKey(
   const cp = layout.keys[e.code]?.[layer];
   if (cp) return { type: 'char', cp };
 
-  // The space bar produces a space in every layer, so it stays out of the table.
+  // The space bar stays out of the table -- the ToUnicodeEx dump never read it.
+  // A real U+0020 is Shift+Space on NiDA, which is what the hint teaches (see
+  // `keyFor`), but accepted here in any layer on purpose: rejecting a plain
+  // space would strand a learner on every word boundary if that reading of the
+  // layout is ever wrong, and a lenient input cannot teach a wrong keypress
+  // while the diagram is showing the right one.
   if (e.code === 'Space') return { type: 'char', cp: ' ' };
   return { type: 'ignore' };
 }

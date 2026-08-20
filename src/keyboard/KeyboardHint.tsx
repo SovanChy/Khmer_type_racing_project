@@ -178,8 +178,21 @@ export function KeyboardHint({ nextCps, missedCp }: Props) {
         normal keys, ~776px) does not fit a narrow viewport, and this is the
         one element allowed to grow past it -- the page body itself must
         never gain a horizontal scrollbar because of this panel.
+
+        Scaled down only in the band where the diagram shares the row with the
+        passage and the row is not wide enough for both at full size: 776px of
+        keys beside a 24rem passage column needs 1266px of viewport, which is
+        14px under `xl`. Full size returns at 2xl, where there is room again.
+        0.9 is the floor for legibility -- the caps carry a 9px key-code label,
+        and below about this the label stops being readable at arm's length.
+
+        `zoom` rather than `transform: scale`, because zoom reflows: the grid
+        track shrinks with the diagram instead of leaving a hole where the
+        unscaled box used to be. The rows are aria-hidden and nothing in here
+        is clickable, so scaling costs no hit target and no screen reader text.
+        Firefox before 126 ignores it and simply gets the old full-size panel.
       */}
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto wide:[zoom:0.9] 2xl:[zoom:1]">
         <div
           className={`flex w-fit flex-col gap-1 font-mono text-xs ${unverified ? 'opacity-70' : ''}`}
         >

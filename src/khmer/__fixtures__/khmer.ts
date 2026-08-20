@@ -70,6 +70,13 @@ export const LANGUAGE_ZWSP_KHMER = LANGUAGE + CP.ZWSP + KHMER;
 /** Three ZWSP-separated words — the shape corpus text actually arrives in. */
 export const PASSAGE_ZWSP = LANGUAGE + CP.ZWSP + KHMER + CP.ZWSP + SREY;
 
+/**
+ * The same three words run together with no separator at all — no space, no
+ * ZWSP. This is how most real Khmer arrives: prose copied off a web page
+ * carries word boundaries nowhere in the text, only in the reader's head.
+ */
+export const PASSAGE_UNSEPARATED = LANGUAGE + KHMER + SREY;
+
 /** A real space between words. Unlike ZWSP, the user has to type this one. */
 export const PASSAGE_SPACED = LANGUAGE + ' ' + KHMER;
 

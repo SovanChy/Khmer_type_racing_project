@@ -114,8 +114,13 @@ export function buildPassage(
  * Word ceiling for a pasted quote. One `<Word>` mounts per word, so pasting a
  * whole article would put thousands of components on screen for a passage
  * nobody types to the end of. Well above the 150 a timed run uses.
+ *
+ * Counted in real words since `toWords` started finding boundaries inside a
+ * run, which is roughly five times as many as the 12-cluster chunks this cap
+ * was first written against. 500 would now cut an ordinary article off after a
+ * couple of thousand characters.
  */
-export const MAX_QUOTE_WORDS = 500;
+export const MAX_QUOTE_WORDS = 1500;
 
 /**
  * Every codepoint a NiDA key can produce, plus the two word separators.

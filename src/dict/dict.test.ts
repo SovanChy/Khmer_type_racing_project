@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildIndex, foldWord, lookupIn, type Packed } from './index';
+import { buildIndex, foldWord, lookupIn, lookupWord, type Packed } from './index';
 import {
   CP,
   HELLO_COENG_DA,
@@ -63,6 +63,47 @@ describe('lookupIn', () => {
 
   it('returns null for punctuation with no word in it', () => {
     expect(lookupIn(dict, CP.KHAN)).toBe(null);
+  });
+});
+
+describe('lookupWord', () => {
+  const dict = buildIndex({
+    [LANGUAGE]: [KH_DEFINITION, '(noun) language'],
+    [KHMER]: ['', '(name) Khmer'],
+  });
+
+  it('returns the one entry when the word is a headword', () => {
+    expect(lookupWord(dict, LANGUAGE).map((e) => e.word)).toEqual([LANGUAGE]);
+  });
+
+  it('splits a compound the segmenter kept together', () => {
+    // ភាសាខ្មែរ is one segment to Intl.Segmenter and two headwords here, which
+    // is why tapping it used to answer "no entry" for a word made entirely of
+    // words that have definitions.
+    expect(lookupWord(dict, LANGUAGE + KHMER).map((e) => e.word)).toEqual([LANGUAGE, KHMER]);
+  });
+
+  it('steps over a numeral instead of failing on it', () => {
+    // UAX #29 refuses to break between a letter and a digit, so ឆ្នាំ២០២៦ arrives
+    // as one word. A number needs no definition; the words around it do.
+    const digits = CP.DIGIT_ONE + CP.DIGIT_ONE;
+    expect(lookupWord(dict, LANGUAGE + digits + KHMER).map((e) => e.word)).toEqual([
+      LANGUAGE,
+      KHMER,
+    ]);
+  });
+
+  it('answers nothing when any piece has no definition', () => {
+    // Half an answer is worse than none: a proper noun that happens to start
+    // with a real word would otherwise be explained as something it is not.
+    expect(lookupWord(dict, LANGUAGE + CP.KA + CP.KHA)).toEqual([]);
+  });
+
+  it('never proposes a split inside a cluster', () => {
+    // The scan walks clusters, so a coeng stack is indivisible even when its
+    // first consonant is a headword on its own.
+    const stacked = buildIndex({ [CP.KA]: ['', '(letter) ka'], [KHMER]: ['', '(name) Khmer'] });
+    expect(lookupWord(stacked, CP.KA + CP.COENG + CP.KA)).toEqual([]);
   });
 });
 

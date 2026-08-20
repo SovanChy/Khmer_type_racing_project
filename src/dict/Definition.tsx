@@ -3,8 +3,12 @@ import { lookup, type Entry } from './index';
 
 type State =
   | { kind: 'loading' }
-  /** Found, or looked up and genuinely absent — both are answers. */
-  | { kind: 'done'; entry: Entry | null }
+  /**
+   * Found, or looked up and genuinely absent — both are answers. More than one
+   * entry when the tapped word is several dictionary words the segmenter kept
+   * together, such as ខែសីហា "August" (ខែ "month" + សីហា).
+   */
+  | { kind: 'done'; entries: Entry[] }
   | { kind: 'error'; message: string };
 
 /**
@@ -21,7 +25,7 @@ export function Definition({ word, onClose }: { word: string; onClose: () => voi
     setState({ kind: 'loading' });
 
     lookup(word).then(
-      (entry) => !cancelled && setState({ kind: 'done', entry }),
+      (entries) => !cancelled && setState({ kind: 'done', entries }),
       (e: unknown) =>
         !cancelled &&
         setState({ kind: 'error', message: e instanceof Error ? e.message : String(e) }),
@@ -58,7 +62,7 @@ export function Definition({ word, onClose }: { word: string; onClose: () => voi
           <p className="text-error text-sm">Could not load the dictionary: {state.message}</p>
         )}
 
-        {state.kind === 'done' && state.entry === null && (
+        {state.kind === 'done' && state.entries.length === 0 && (
           <p className="text-muted text-sm">
             No entry. Proper nouns and words coined after 1967 are often missing from both
             dictionaries.
@@ -66,43 +70,15 @@ export function Definition({ word, onClose }: { word: string; onClose: () => voi
         )}
 
         {/*
-          English first and at full weight, Khmer under it. Both are shown —
-          this is a Khmer trainer and the Khmer definition is the fuller of the
-          two — but the English gloss is the one that has to answer "what does
-          this mean" at a glance, so it does not get to be a footnote.
+          Usually one entry. When the word turned out to be several, each gets
+          its own headword above its gloss — otherwise two definitions would sit
+          under one heading with nothing saying which half of the word each
+          belongs to.
         */}
-        {state.kind === 'done' && state.entry && (
-          <>
-            {state.entry.en ? (
-              <p className="text-lg leading-relaxed font-medium" lang="en">
-                {state.entry.en}
-              </p>
-            ) : (
-              // Said out loud rather than left blank: a reader who leans on the
-              // English needs to know the gap is in the dictionary, not in the
-              // word. Rare headwords are the ones Wiktionary tends to miss.
-              <p className="text-muted text-sm" lang="en">
-                No English gloss for this word — the Khmer definition is below.
-              </p>
-            )}
-
-            {/*
-              Both Khmer definitions when both exist, newest first and always
-              labelled. Chuon Nath is authoritative but written in 1967, and
-              its entries can read as circular to a modern speaker; Khmer
-              Wiktionary is plainer but covers far fewer words. Neither
-              replaces the other, so neither is shown unlabelled.
-
-              Full contrast, not muted: English leads by size and weight, and
-              dimming the Khmer would demote it rather than promote the gloss.
-              She reads both.
-            */}
-            {state.entry.modern && (
-              <Sense label="ខ្មែរ · Wiktionary" text={state.entry.modern} />
-            )}
-            {state.entry.kh && <Sense label="ខ្មែរ · Chuon Nath, 1967" text={state.entry.kh} />}
-          </>
-        )}
+        {state.kind === 'done' &&
+          state.entries.map((entry) => (
+            <Sense key={entry.word} entry={entry} showWord={state.entries.length > 1} />
+          ))}
       </div>
 
       {/*
@@ -118,8 +94,54 @@ export function Definition({ word, onClose }: { word: string; onClose: () => voi
   );
 }
 
+/**
+ * One dictionary entry.
+ *
+ * English first and at full weight, Khmer under it. Both are shown — this is a
+ * Khmer trainer and the Khmer definition is the fuller of the two — but the
+ * English gloss is the one that has to answer "what does this mean" at a
+ * glance, so it does not get to be a footnote.
+ */
+function Sense({ entry, showWord }: { entry: Entry; showWord: boolean }) {
+  return (
+    <div className="space-y-3">
+      {showWord && (
+        <p className="font-khmer text-muted text-lg leading-[1.6]" lang="km">
+          {entry.word}
+        </p>
+      )}
+
+      {entry.en ? (
+        <p className="text-lg leading-relaxed font-medium" lang="en">
+          {entry.en}
+        </p>
+      ) : (
+        // Said out loud rather than left blank: a reader who leans on the
+        // English needs to know the gap is in the dictionary, not in the
+        // word. Rare headwords are the ones Wiktionary tends to miss.
+        <p className="text-muted text-sm" lang="en">
+          No English gloss for this word — the Khmer definition is below.
+        </p>
+      )}
+
+      {/*
+        Both Khmer definitions when both exist, newest first and always
+        labelled. Chuon Nath is authoritative but written in 1967, and its
+        entries can read as circular to a modern speaker; Khmer Wiktionary is
+        plainer but covers far fewer words. Neither replaces the other, so
+        neither is shown unlabelled.
+
+        Full contrast, not muted: English leads by size and weight, and dimming
+        the Khmer would demote it rather than promote the gloss. She reads both.
+      */}
+      {entry.modern && <Definitions label="ខ្មែរ · Wiktionary" text={entry.modern} />}
+      {entry.kh && <Definitions label="ខ្មែរ · Chuon Nath, 1967" text={entry.kh} />}
+    </div>
+  );
+}
+
 /** One labelled Khmer definition. Which dictionary it came from is part of it. */
-function Sense({ label, text }: { label: string; text: string }) {
+function Definitions({ label, text }: { label: string; text: string }) {
   return (
     <div className="border-border border-t pt-3">
       <p className="text-muted mb-1 text-[0.7rem] font-semibold tracking-wide uppercase">

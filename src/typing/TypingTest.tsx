@@ -467,7 +467,7 @@ export function TypingTest() {
         phone. Zeroing the floor hands the overflow back to the panel's own
         overflow-x-auto, where it belongs.
       */}
-      <div className="grid gap-6 [&>*]:min-w-0 xl:grid-cols-[minmax(24rem,1fr)_auto] xl:items-start">
+      <div className="grid gap-6 [&>*]:min-w-0 wide:grid-cols-[minmax(24rem,1fr)_auto] wide:items-start">
       {/* The passage column: the text and, when asked for, what a word means. */}
       <div className="space-y-4">
       <KeyboardInput

@@ -19,6 +19,7 @@ import {
   KHMER,
   LANGUAGE,
   PASSAGE_SPACED,
+  PASSAGE_UNSEPARATED,
   PASSAGE_ZWSP,
   SREY,
 } from '../khmer/__fixtures__/khmer';
@@ -35,7 +36,7 @@ describe('toWords', () => {
   it('rejoins to exactly the stripped text', () => {
     // The whole codepoint-offset scheme depends on this: splitting for display
     // must not add or lose a single typeable codepoint.
-    for (const text of [PASSAGE_ZWSP, PASSAGE_SPACED, LANGUAGE, '']) {
+    for (const text of [PASSAGE_ZWSP, PASSAGE_SPACED, PASSAGE_UNSEPARATED, LANGUAGE, '']) {
       expect(toWords(text).join('')).toBe(stripInvisible(text));
     }
   });
@@ -59,6 +60,50 @@ describe('toWords', () => {
     const words = toWords(long, 5);
     expect(words.length).toBeGreaterThan(1);
     expect(words.join('')).toBe(long);
+  });
+
+  it('splits a run that carries no separator into real words', () => {
+    // ភាសាខ្មែរស្រី has no space and no ZWSP, which is how pasted web prose
+    // arrives. Before word segmentation this stayed one word, so tapping it
+    // asked the dictionary for two words glued together and got nothing.
+    //
+    // Asserted as a property, not as an exact array: how a dictionary breaker
+    // groups a compound is an ICU decision, and pinning today's answer would
+    // fail the suite on a Node upgrade that changed nothing here.
+    const words = toWords(PASSAGE_UNSEPARATED);
+    expect(words.length).toBeGreaterThan(1);
+    expect(words.join('')).toBe(PASSAGE_UNSEPARATED);
+  });
+
+  it('leaves an authored ZWSP boundary as the only boundary', () => {
+    // A ZWSP is a human saying where the words are. The segmenter re-splitting
+    // inside one would override that -- and its idea of a compound is exactly
+    // the thing the corpus author is correcting.
+    expect(toWords(PASSAGE_ZWSP)).toEqual([LANGUAGE, KHMER, SREY]);
+    expect(toWords(LANGUAGE + KHMER + CP.ZWSP + SREY)).toEqual([LANGUAGE + KHMER, SREY]);
+  });
+
+  it('never leaves punctuation standing as a word of its own', () => {
+    // Punctuation is a segment of its own to Intl.Segmenter, at either end.
+    // Promoting one would put a <Word> on screen holding nothing but ។.
+    for (const text of [
+      LANGUAGE + KHMER + CP.KHAN + SREY,
+      LANGUAGE + ' ' + CP.KHAN + KHMER,
+      CP.KHAN + LANGUAGE,
+    ]) {
+      for (const word of toWords(text)) expect(word.replace(/[។\s]/g, '')).not.toBe('');
+    }
+  });
+
+  it('does not cut a coeng stack open, however deep it goes', () => {
+    // The segmenter's Khmer dictionary will break ក្ក្ក្ក into ក្ក្ + ក្ក, which
+    // strands a dangling coeng that renders as a dotted circle. Segmentation
+    // may only propose boundaries that fall where a cluster begins.
+    const deep = CP.KA + (CP.COENG + CP.KA).repeat(3);
+    for (const word of toWords(deep)) {
+      expect(word.endsWith(CP.COENG)).toBe(false);
+      expect(word.startsWith(CP.COENG)).toBe(false);
+    }
   });
 
   it('never splits a chunk inside a cluster', () => {
