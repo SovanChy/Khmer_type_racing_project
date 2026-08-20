@@ -24,8 +24,8 @@ const rows = (sql: string, bind: unknown = []): Record<string, unknown>[] =>
 const DAY = 24 * 60 * 60 * 1000;
 const NOW = 1_700_000_000_000;
 
-const addSession = (startedAt: number, cpm = 200, accuracy = 0.9): number =>
-  rows(INSERT_SESSION, [startedAt, 'time:30', 30_000, cpm, accuracy])[0]?.id as number;
+const addSession = (startedAt: number, cpm = 200, accuracy = 0.9, wpm: number | null = 20): number =>
+  rows(INSERT_SESSION, [startedAt, 'time:30', 30_000, cpm, wpm, accuracy])[0]?.id as number;
 
 interface Key {
   cp: string;

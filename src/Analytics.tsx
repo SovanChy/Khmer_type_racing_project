@@ -11,6 +11,7 @@ import {
   type TrendPoint,
 } from './storage';
 import { useStore } from './store';
+import { CLUSTERS_PER_WORD } from './typing/engine';
 import { COENG } from './khmer/segment';
 
 /**
@@ -22,6 +23,13 @@ import { COENG } from './khmer/segment';
  * hue at all — bar length plus a direct label carries the value.
  */
 const SERIES = 'var(--caret)';
+
+/**
+ * Said on the chart, not only in the result panel: a Khmer 'word' here is a
+ * local convention, and a number labelled WPM invites comparison with Latin
+ * typing scores it is not comparable to.
+ */
+const WORDS_CAPTION = `${CLUSTERS_PER_WORD} Khmer clusters = 1 word`;
 
 /** U+17D2 has no standalone glyph, so a subscript is shown attached to a base. */
 const DOTTED_CIRCLE = '◌';
@@ -63,6 +71,12 @@ export function Analytics() {
   // as a blank sheet with a footer until the worker answered.
   const empty = !data || data.trend.length === 0;
 
+  // Narrowed here rather than inline so the chart's points and its labels are
+  // guaranteed to come from the same rows.
+  const withWpm = (data?.trend ?? []).filter(
+    (t): t is TrendPoint & { wpm: number } => t.wpm !== null,
+  );
+
   return (
     <section className="space-y-6">
       <h2 className="text-sm font-medium">Your progress</h2>
@@ -88,11 +102,18 @@ export function Analytics() {
               format={(v) => `${Math.round(v)}%`}
               zeroBased
             />
+            {/*
+              Sessions saved before wpm was recorded are dropped from this
+              chart rather than plotted at zero or converted from their cpm:
+              cpm counts codepoints and wpm counts clusters, and no fixed ratio
+              turns one into the other. A missing point is honest; an invented
+              one would put a dip in the trend that never happened.
+            */}
             <Trend
-              title="CPM"
-              caption="correct keystrokes per minute"
-              points={data.trend.map((t) => t.cpm)}
-              labels={data.trend.map((t) => new Date(t.startedAt).toLocaleDateString())}
+              title="WPM"
+              caption={`${WORDS_CAPTION} · last 30 sessions`}
+              points={withWpm.map((t) => t.wpm)}
+              labels={withWpm.map((t) => new Date(t.startedAt).toLocaleDateString())}
               format={(v) => String(Math.round(v))}
               zeroBased
             />

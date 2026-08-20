@@ -45,6 +45,8 @@ export interface TrendPoint {
   startedAt: number;
   mode: string;
   cpm: number;
+  /** NULL for sessions saved before wpm was recorded — see MIGRATIONS v3. */
+  wpm: number | null;
   accuracy: number;
 }
 
@@ -99,10 +101,10 @@ ORDER BY meanMs DESC
 LIMIT $limit
 `;
 
-/** Accuracy and CPM over recent sessions, returned oldest first for plotting. */
+/** Accuracy and speed over recent sessions, returned oldest first for plotting. */
 export const SESSION_TREND = `
 SELECT * FROM (
-  SELECT id, started_at AS startedAt, mode, cpm, accuracy
+  SELECT id, started_at AS startedAt, mode, cpm, wpm, accuracy
   FROM sessions
   ORDER BY started_at DESC
   LIMIT $limit

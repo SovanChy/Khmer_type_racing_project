@@ -168,7 +168,9 @@ export function DataPanel() {
         <ol className="text-muted space-y-1 font-mono text-xs">
           {sessions.map((s) => (
             <li key={s.id}>
-              {new Date(s.startedAt).toLocaleString()} · {s.mode} · {Math.round(s.cpm)} cpm ·{' '}
+              {new Date(s.startedAt).toLocaleString()} · {s.mode} ·{' '}
+              {/* Sessions from before wpm was recorded still list their cpm. */}
+              {s.wpm === null ? `${Math.round(s.cpm)} cpm` : `${Math.round(s.wpm)} wpm`} ·{' '}
               {Math.round(s.accuracy * 100)}%
             </li>
           ))}

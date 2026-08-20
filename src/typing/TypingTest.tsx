@@ -314,6 +314,7 @@ export function TypingTest() {
           }),
         ),
         cpm: final.cpm,
+        wpm: final.wpm,
         accuracy: final.accuracy,
       },
       keystrokes.current,
