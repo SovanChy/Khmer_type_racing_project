@@ -5,3 +5,8 @@ dist-ssr
 .DS_Store
 .netlify/
 pic
+
+# Local build notes, not for the public repo
+spec.md
+SPEC-V2.md
+claude.md
