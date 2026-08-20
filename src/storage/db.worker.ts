@@ -109,7 +109,14 @@ function saveSession(session: SessionRecord, keystrokes: KeystrokeRecord[]): num
   db.transaction(() => {
     const inserted = db.exec({
       sql: INSERT_SESSION,
-      bind: [session.startedAt, session.mode, session.durationMs, session.cpm, session.accuracy],
+      bind: [
+        session.startedAt,
+        session.mode,
+        session.durationMs,
+        session.cpm,
+        session.wpm,
+        session.accuracy,
+      ],
       rowMode: 'object',
       returnValue: 'resultRows',
     });
@@ -177,6 +184,7 @@ function buildExportPayload(): ExportPayload {
       mode: s.mode,
       durationMs: s.durationMs,
       cpm: s.cpm,
+      wpm: s.wpm,
       accuracy: s.accuracy,
       keystrokes: bySession.get(s.id) ?? [],
     })),
@@ -203,7 +211,14 @@ function importExport(data: ExportPayload): void {
       for (const session of data.sessions) {
         const inserted = db.exec({
           sql: INSERT_SESSION,
-          bind: [session.startedAt, session.mode, session.durationMs, session.cpm, session.accuracy],
+          bind: [
+        session.startedAt,
+        session.mode,
+        session.durationMs,
+        session.cpm,
+        session.wpm,
+        session.accuracy,
+      ],
           rowMode: 'object',
           returnValue: 'resultRows',
         });

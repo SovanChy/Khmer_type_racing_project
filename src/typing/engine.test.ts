@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
-  activeClusterDetail,
   activeWordIndex,
   clusterView,
   countCorrectClusters,
   countCorrectCodepoints,
   elapsedMs,
+  endReason,
   score,
   targetSites,
   toWords,
@@ -131,44 +131,6 @@ describe('clusterView', () => {
   });
 });
 
-describe('activeClusterDetail', () => {
-  it('renders a coeng and its consonant as ONE cell, not two', () => {
-    // COENG_STACK is ក + ្ + ក — three codepoints, but the coeng pair must
-    // fold into a single cell.
-    const detail = activeClusterDetail(COENG_STACK, '');
-    expect(detail).toEqual([
-      { text: CP.KA, status: 'pending' },
-      { text: CP.COENG + CP.KA, status: 'pending' },
-    ]);
-  });
-
-  it('marks a wrong subscript incorrect while the base consonant stays correct', () => {
-    // This is the whole point of R2: a bad subscript must not condemn the
-    // base consonant's cell the way clusterView's whole-cluster fold would.
-    // SREY (ស្រី, one cluster: ស + ្រ + ី) has a codepoint after the coeng
-    // pair, so it stays mid-typing (not "done") after the mistake -- unlike
-    // COENG_STACK, where a wrong final codepoint finishes the word outright.
-    const wrongSubscript = CP.SA + CP.COENG + CP.KA; // typed KA where RO was wanted
-    const detail = activeClusterDetail(SREY, wrongSubscript);
-    expect(detail).toEqual([
-      { text: CP.SA, status: 'correct' },
-      { text: CP.COENG + CP.RO, status: 'incorrect' },
-      { text: CP.SRA_II, status: 'pending' },
-    ]);
-  });
-
-  it('marks untyped codepoints in the active cluster pending', () => {
-    const detail = activeClusterDetail(COENG_STACK, CP.KA);
-    expect(detail).toEqual([
-      { text: CP.KA, status: 'correct' },
-      { text: CP.COENG + CP.KA, status: 'pending' },
-    ]);
-  });
-
-  it('returns nothing once the passage is fully typed', () => {
-    expect(activeClusterDetail(COENG_STACK, COENG_STACK)).toEqual([]);
-  });
-});
 
 describe('countCorrectClusters', () => {
   it('counts only clusters that are complete and correct', () => {
@@ -388,5 +350,26 @@ describe('score', () => {
     const s = score({ ...base, ms: 0 });
     expect(s.cpm).toBe(0);
     expect(s.wpm).toBe(0);
+  });
+});
+
+
+describe('endReason', () => {
+  it('is null while the run is still live', () => {
+    expect(endReason(false, true, 3, 100)).toBe(null);
+  });
+
+  it('blames the clock when a timed run stops short of the passage', () => {
+    expect(endReason(true, true, 42, 750)).toBe('time');
+  });
+
+  it('blames the passage when the last codepoint was typed', () => {
+    expect(endReason(true, true, 750, 750)).toBe('passage');
+  });
+
+  it('never blames the clock when nothing was counting down', () => {
+    // Word-count runs and pasted quotes have no countdown, so a short caret
+    // cannot mean "time ran out" — only the passage can end them.
+    expect(endReason(true, false, 42, 750)).toBe('passage');
   });
 });

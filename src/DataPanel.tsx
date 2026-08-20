@@ -117,7 +117,7 @@ export function DataPanel() {
   }
 
   return (
-    <section className="border-border space-y-3 rounded-lg border p-4">
+    <section className="card space-y-3 p-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-sm font-medium">Your data</h2>
         <StatusPill status={status} detail={detail} />
@@ -168,7 +168,9 @@ export function DataPanel() {
         <ol className="text-muted space-y-1 font-mono text-xs">
           {sessions.map((s) => (
             <li key={s.id}>
-              {new Date(s.startedAt).toLocaleString()} · {s.mode} · {Math.round(s.cpm)} cpm ·{' '}
+              {new Date(s.startedAt).toLocaleString()} · {s.mode} ·{' '}
+              {/* Sessions from before wpm was recorded still list their cpm. */}
+              {s.wpm === null ? `${Math.round(s.cpm)} cpm` : `${Math.round(s.wpm)} wpm`} ·{' '}
               {Math.round(s.accuracy * 100)}%
             </li>
           ))}

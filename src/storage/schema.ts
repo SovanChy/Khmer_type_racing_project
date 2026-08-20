@@ -65,6 +65,17 @@ export const MIGRATIONS: readonly string[] = [
   CREATE INDEX IF NOT EXISTS idx_keystrokes_subscript
     ON keystrokes(subscript, target_codepoint);
   `,
+
+  // v3 — words per minute alongside characters per minute.
+  //
+  // Nullable, and deliberately not backfilled: wpm counts correct CLUSTERS per
+  // CLUSTERS_PER_WORD, cpm counts correct codepoints, and a Khmer cluster runs
+  // one to three codepoints depending on the text. There is no ratio that turns
+  // a stored cpm into the wpm that run actually scored, so rows written before
+  // this migration report NULL rather than a plausible-looking guess.
+  `
+  ALTER TABLE sessions ADD COLUMN wpm REAL;
+  `,
 ];
 
 /**
@@ -85,6 +96,8 @@ export interface SessionRecord {
   mode: string;
   durationMs: number;
   cpm: number;
+  /** NULL on sessions saved before the v3 migration — see MIGRATIONS. */
+  wpm: number | null;
   /** 0..1, not a percentage. */
   accuracy: number;
 }
@@ -107,8 +120,8 @@ export interface KeystrokeRecord {
 
 /** RETURNING avoids a second round trip for last_insert_rowid(). */
 export const INSERT_SESSION = `
-INSERT INTO sessions (started_at, mode, duration, cpm, accuracy)
-VALUES (?, ?, ?, ?, ?)
+INSERT INTO sessions (started_at, mode, duration, cpm, wpm, accuracy)
+VALUES (?, ?, ?, ?, ?, ?)
 RETURNING id
 `;
 
@@ -119,7 +132,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?)
 `;
 
 export const RECENT_SESSIONS = `
-SELECT id, started_at AS startedAt, mode, duration AS durationMs, cpm, accuracy
+SELECT id, started_at AS startedAt, mode, duration AS durationMs, cpm, wpm, accuracy
 FROM sessions
 ORDER BY started_at DESC
 LIMIT ?
@@ -127,7 +140,7 @@ LIMIT ?
 
 /** Every session, oldest first, for a full JSON export. */
 export const ALL_SESSIONS = `
-SELECT id, started_at AS startedAt, mode, duration AS durationMs, cpm, accuracy
+SELECT id, started_at AS startedAt, mode, duration AS durationMs, cpm, wpm, accuracy
 FROM sessions
 ORDER BY id ASC
 `;
@@ -262,6 +275,11 @@ export function parseExport(payload: unknown): ExportPayload {
     if (!isFiniteNumber(s.cpm)) {
       throw new Error(`Session ${sIdx}: cpm must be a number.`);
     }
+    // Optional, not required: exports written before wpm existed are still
+    // valid, and rejecting them would strand backups people already hold.
+    if (s.wpm !== undefined && s.wpm !== null && !isFiniteNumber(s.wpm)) {
+      throw new Error(`Session ${sIdx}: wpm must be a number, null or absent.`);
+    }
     if (!isFiniteNumber(s.accuracy) || s.accuracy < 0 || s.accuracy > 1) {
       throw new Error(`Session ${sIdx}: accuracy must be a number between 0 and 1.`);
     }
@@ -314,6 +332,7 @@ export function parseExport(payload: unknown): ExportPayload {
       mode: s.mode,
       durationMs: s.durationMs,
       cpm: s.cpm,
+      wpm: isFiniteNumber(s.wpm) ? s.wpm : null,
       accuracy: s.accuracy,
       keystrokes,
     };

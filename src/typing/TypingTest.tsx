@@ -5,6 +5,7 @@ import {
   useReducer,
   useRef,
   useState,
+  type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from 'react';
 import {
@@ -20,39 +21,21 @@ import { HINT_KEYS, KeyboardHint } from '../keyboard/KeyboardHint';
 import { KeyboardInput } from '../keyboard/KeyboardInput';
 import type { KeyAction } from '../keyboard/nida';
 import {
-  activeClusterDetail,
   countCorrectClusters,
   countCorrectCodepoints,
   elapsedMs,
+  endReason,
   score,
   targetSites,
   wordProps,
   CLUSTERS_PER_WORD,
-  type CellStatus,
   type Score,
 } from './engine';
 import { Word, wordRenders } from './Word';
-import { standalone } from '../khmer/segment';
 import { saveSession, worstClusters, type KeystrokeRecord } from '../storage';
 import { useStore } from '../store';
-
-/**
- * Palette for the cluster strip only — deliberately not `CELL_CLASS`, which
- * styles inline text inside the passage where a filled box would wreck the
- * line box. Here each piece is a standalone cell whose whole job is to be seen
- * without looking for it, so it gets a border, a fill and four times the size.
- */
-const DETAIL_CLASS: Record<CellStatus, string> = {
-  correct: 'border-success/50 bg-success/10 text-success',
-  // The underline carries over from CELL_CLASS for the same reason it exists
-  // there: the non-colour cue that keeps this readable under red/green colour
-  // blindness. Do not drop it as redundant with the fill.
-  incorrect: 'border-error bg-error/20 text-error underline decoration-error/60 underline-offset-8',
-  // Dimmed success, not dimmed default: partial means some codepoints in the
-  // cluster landed correct and none are wrong yet.
-  partial: 'border-success/30 bg-success/5 text-success/70',
-  pending: 'border-border text-muted',
-};
+import { Definition } from '../dict/Definition';
+import { foldWord } from '../dict';
 
 /**
  * How hard drill mode leans on weak clusters, against a baseline weight of 1
@@ -137,6 +120,9 @@ export function TypingTest() {
   const pauseStartedAt = useRef<number | null>(null);
 
   const [drill, setDrill] = useState(false);
+
+  /** R4: the word whose definition is open, or null. */
+  const [definition, setDefinition] = useState<string | null>(null);
 
   // R3: parsed once per quote, not once per restart — the strip/count shown in
   // the config bar and the passage itself must come from the same parse.
@@ -243,6 +229,21 @@ export function TypingTest() {
     return () => clearTimeout(id);
   }, [phase, config, paused, quote]);
 
+  /**
+   * R4: open the dictionary on the word that was clicked.
+   *
+   * Deliberately does not stop the click from reaching the input card, which
+   * focuses the typing field — looking a word up mid-run must not cost the
+   * user their focus, and therefore must not pause the run.
+   */
+  function handleWordClick(e: ReactMouseEvent<HTMLParagraphElement>) {
+    const hit = (e.target as HTMLElement).closest('[data-word]');
+    const word = hit?.getAttribute('data-word');
+    // A passage word can be bare punctuation — `។` is its own word. There is
+    // nothing to look up, so open nothing rather than a panel saying so.
+    if (word && foldWord(word) !== '') setDefinition(word);
+  }
+
   /** Blur pauses a running test — see the `Stats.pausedMs` comment for why. */
   function handleInputBlur() {
     if (phase !== 'running') return;
@@ -313,6 +314,7 @@ export function TypingTest() {
           }),
         ),
         cpm: final.cpm,
+        wpm: final.wpm,
         accuracy: final.accuracy,
       },
       keystrokes.current,
@@ -389,13 +391,36 @@ export function TypingTest() {
   // much longer passage ever makes it show up.
   const correctCp = countCorrectCodepoints(target, typedText);
 
-  // R2 strip: the active word's own cluster decomposition. Cluster boundaries
-  // never cross a word boundary (toWords/chunkByClusters both cut on cluster
-  // edges), so feeding the active word alone is equivalent to feeding the
-  // whole passage and cheaper.
   const currentWordProps = wordProps(words, typed.current, caret);
-  const activeWord = currentWordProps.find((p) => p.status === 'active');
-  const activeDetail = activeWord ? activeClusterDetail(activeWord.target, activeWord.typed) : [];
+
+  // R5: why the run stopped. Derived, not stored — see `endReason`.
+  const ended = endReason(
+    phase === 'done',
+    config.kind === 'time' && quote === null,
+    caret,
+    targetCps.length,
+  );
+
+  // The character the last keypress should have produced but didn't. Read
+  // straight off the buffer rather than kept in state: the caret already
+  // re-renders this component every keystroke, so deriving it costs nothing
+  // and cannot drift out of sync with what was actually typed. Clears itself
+  // as soon as the next press lands correctly, or backspace walks back over it.
+  const missedCp =
+    caret > 0 && typed.current[caret - 1] !== sites[caret - 1]?.codepoint
+      ? (sites[caret - 1]?.codepoint ?? null)
+      : null;
+
+  // R2 strip, fed the WHOLE passage rather than just the active word: with a
+  // lookahead it has to be able to run past the end of a word, because the
+  // keyboard hint does — the hint's five keys routinely include the space and
+  // the start of the next word, and a strip that stopped at the word boundary
+  // would show a shorter window than the diagram it is meant to agree with.
+  //
+  // Costs one more full-passage compare() per keystroke. Same reasoning as
+  // countCorrectCodepoints above: ~750 codepoints is far under a frame, and
+  // this is outside <Word>'s props, so the one-render-per-keypress invariant
+  // is untouched.
 
   return (
     <section className="space-y-6">
@@ -443,9 +468,12 @@ export function TypingTest() {
         overflow-x-auto, where it belongs.
       */}
       <div className="grid gap-6 [&>*]:min-w-0 xl:grid-cols-[minmax(24rem,1fr)_auto] xl:items-start">
+      {/* The passage column: the text and, when asked for, what a word means. */}
+      <div className="space-y-4">
       <KeyboardInput
         onAction={handleAction}
         paused={paused}
+        ended={ended}
         onBlur={handleInputBlur}
         onFocus={handleInputFocus}
       >
@@ -461,9 +489,20 @@ export function TypingTest() {
           multiplier is the `leading` value: 3 lines exactly, whatever the
           breakpoint. Changing one without the other silently clips a line.
         */}
+        {/*
+          Dimmed once the run is over: the passage is the thing being stared
+          at, so it is the thing that has to stop looking live.
+        */}
         <p
           ref={passage}
-          className="font-khmer h-[6.6em] overflow-hidden text-2xl leading-[2.2] sm:text-3xl"
+          // R4: one handler for the whole passage, reading the word off the
+          // element that was hit. A click handler per <Word> would be a new
+          // function identity every render and would re-render the passage on
+          // every keystroke — see the memo note in Word.tsx.
+          onClick={handleWordClick}
+          className={`font-khmer h-[6.6em] overflow-hidden text-2xl leading-[2.2] sm:text-3xl ${
+            ended ? 'opacity-50' : ''
+          }`}
           lang="km"
         >
           {currentWordProps.map((props, i) => (
@@ -486,41 +525,26 @@ export function TypingTest() {
           …
         </span>
 
-        {/*
-          R2 cluster-decomposition strip: the active cluster broken into the
-          pieces a single passage cell cannot colour separately (a coeng and
-          its consonant, e.g. ្គ, has to light up red or green on its own).
-          Unlike the passage above, each piece here is its OWN element on
-          purpose — that is safe precisely because this strip never renders a
-          cluster mid-stack across two cells the way splitting the passage's
-          text run would; each cell is a self-contained stacking unit, so
-          nothing needs to shape across the boundary between them.
-          aria-hidden: a visual decomposition of text already present in the
-          passage, nothing new for a screen reader. Hidden (not unmounted)
-          when there's no active cluster, so the keyboard hint below doesn't
-          jump — same reasoning as the "…" marker above.
-        */}
-        <div
-          aria-hidden
-          lang="km"
-          className="font-khmer mt-4 flex h-20 items-center gap-2"
-          style={{ visibility: activeDetail.length > 0 ? 'visible' : 'hidden' }}
-        >
-          {activeDetail.map((cell, i) => (
-            // standalone(): a coeng or a vowel sign has nothing to stack onto
-            // in a lone cell, so it gets a dotted circle to sit on.
-            <span
-              key={i}
-              className={`flex h-16 min-w-16 items-center justify-center rounded-lg border-2 px-3 text-4xl leading-[1.3] ${DETAIL_CLASS[cell.status]}`}
-            >
-              {standalone(cell.text)}
-            </span>
-          ))}
-        </div>
       </KeyboardInput>
 
+        {/*
+          R4: under the passage and inside its column, so the word and its
+          meaning read together at every width — in the two-column layout the
+          keyboard diagram would otherwise sit between them. Absent from the
+          DOM entirely until a word is tapped.
+        */}
+        {definition !== null && (
+          <Definition word={definition} onClose={() => setDefinition(null)} />
+        )}
+      </div>
+
       {showKeyboard && (
-        <KeyboardHint nextCps={sites.slice(caret, caret + HINT_KEYS).map((s) => s.codepoint)} />
+        <KeyboardHint
+          // Nothing is "next" once the run is over. A diagram still lighting up
+          // a key you can no longer type is the same lie the input was telling.
+          nextCps={ended ? [] : sites.slice(caret, caret + HINT_KEYS).map((s) => s.codepoint)}
+          missedCp={ended ? null : missedCp}
+        />
       )}
       </div>
 
@@ -572,7 +596,7 @@ function ConfigBar({
   const locked = quote !== null;
 
   return (
-    <div className="border-border flex flex-wrap items-center gap-x-4 gap-y-3 rounded-lg border px-3 py-2.5">
+    <div className="card flex flex-wrap items-center gap-x-4 gap-y-3 px-4 py-3">
       <Segmented
         label="time"
         unit="s"
@@ -654,7 +678,7 @@ function Segmented<T extends number>({
       <div
         role="radiogroup"
         aria-label={ariaLabel}
-        className={`bg-border/15 flex items-center gap-0.5 rounded-lg p-0.5 ${disabled ? 'opacity-40' : ''}`}
+        className={`bg-key flex items-center gap-0.5 rounded-lg p-0.5 ${disabled ? 'opacity-40' : ''}`}
       >
         {options.map((value) => {
           const on = selected === value;
@@ -667,7 +691,7 @@ function Segmented<T extends number>({
               disabled={disabled}
               className={`focus-visible:ring-caret cursor-pointer rounded-md px-2.5 py-1 font-mono text-sm tabular-nums transition-colors focus-visible:ring-2 focus-visible:outline-none disabled:cursor-not-allowed ${
                 on
-                  ? 'bg-caret/20 text-fg ring-caret font-semibold ring-1'
+                  ? 'bg-caret text-bg font-semibold'
                   : 'text-muted hover:text-fg'
               }`}
             >
@@ -765,6 +789,24 @@ function QuoteControl({
       </summary>
 
       <div className="mt-2 space-y-2">
+        {/*
+          Placed above the textarea, not below it: a caution under the box is
+          read after the paste it was meant to prevent.
+
+          It says what actually happens rather than only disclaiming, because
+          the concrete fact is the part that changes behaviour — pasted text
+          and the keystrokes typed against it are written to this browser's
+          local database, so anyone with the device can read them back.
+        */}
+        <p className="border-border text-muted border-l-2 py-0.5 pl-3 text-xs">
+          <strong className="text-fg font-semibold">Don&apos;t paste anything private.</strong> Your
+          text, and every keystroke you type against it, are saved to this browser&apos;s local
+          database so your results survive a reload. Nothing is uploaded anywhere, but anyone who
+          can use this device or browser profile can read it — clear it with{' '}
+          <span className="whitespace-nowrap">&ldquo;Clear all my data&rdquo;</span> below. You are
+          responsible for what you paste; this trainer is provided as-is, with no warranty.
+        </p>
+
         <textarea
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
@@ -775,8 +817,14 @@ function QuoteControl({
           className="font-khmer border-border bg-surface text-fg focus-visible:border-caret block w-full rounded-md border p-3 text-base outline-none"
         />
         <div className="flex flex-wrap items-center gap-3">
-          {/* Primary and secondary, not two identical buttons: one of these
-              replaces your passage and the other throws it away. */}
+          {/*
+            Three different jobs, three different weights. "Use this text" is
+            the commit, so it is the solid one. "Clear text" only empties the
+            box you are editing — red because it throws away something you
+            pasted, but it does NOT change what you are currently typing
+            against. "Use the built-in passages" is the one that does that,
+            and it only exists while your own text is actually in use.
+          */}
           <button
             onClick={() => onQuoteChange(draft.trim().length > 0 ? draft : null)}
             disabled={draft.trim().length === 0}
@@ -784,15 +832,22 @@ function QuoteControl({
           >
             Use this text
           </button>
+
+          <button
+            onClick={() => setDraft('')}
+            disabled={draft.length === 0}
+            title="Empty the box above. Does not change what you are typing now."
+            className="border-error/50 text-error hover:bg-error/10 hover:border-error focus-visible:ring-error cursor-pointer rounded-lg border px-4 py-1.5 text-sm font-medium transition-colors focus-visible:ring-2 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-30"
+          >
+            Clear text
+          </button>
+
           {quote !== null && (
             <button
-              onClick={() => {
-                setDraft('');
-                onQuoteChange(null);
-              }}
+              onClick={() => onQuoteChange(null)}
               className="text-muted hover:text-fg focus-visible:ring-caret cursor-pointer rounded-lg px-2 py-1.5 text-sm underline underline-offset-4 focus-visible:ring-2 focus-visible:outline-none"
             >
-              Back to corpus
+              Use the built-in passages
             </button>
           )}
           {parsed && (
@@ -888,7 +943,7 @@ function Results({
   onRestart: () => void;
 }) {
   return (
-    <div className="border-border bg-surface space-y-4 rounded-lg border p-6">
+    <div className="card space-y-4 p-6">
       <h2 className="text-muted text-sm font-medium">Result</h2>
 
       <dl className="grid grid-cols-2 gap-4 sm:grid-cols-4">
@@ -909,7 +964,16 @@ function Results({
       </p>
 
       <div className="flex flex-wrap items-center gap-4">
+        {/*
+          R5: this panel mounts below the passage and, on a wide screen, below
+          the keyboard diagram — i.e. off the bottom of the window, which is
+          why a finished run could go unnoticed. Taking focus scrolls it into
+          view, pulls focus out of the input that is no longer recording, and
+          puts Enter on "go again". Only ever on mount, and only for a run the
+          user just finished themselves.
+        */}
         <button
+          autoFocus
           onClick={onRestart}
           className="bg-caret/15 text-caret hover:bg-caret/25 focus-visible:ring-caret cursor-pointer rounded-md px-4 py-2 text-sm transition-colors focus-visible:ring-2 focus-visible:outline-none"
         >

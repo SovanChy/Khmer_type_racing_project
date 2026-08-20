@@ -11,6 +11,7 @@ import {
   type TrendPoint,
 } from './storage';
 import { useStore } from './store';
+import { CLUSTERS_PER_WORD } from './typing/engine';
 import { COENG } from './khmer/segment';
 
 /**
@@ -22,6 +23,13 @@ import { COENG } from './khmer/segment';
  * hue at all — bar length plus a direct label carries the value.
  */
 const SERIES = 'var(--caret)';
+
+/**
+ * Said on the chart, not only in the result panel: a Khmer 'word' here is a
+ * local convention, and a number labelled WPM invites comparison with Latin
+ * typing scores it is not comparable to.
+ */
+const WORDS_CAPTION = `${CLUSTERS_PER_WORD} Khmer clusters = 1 word`;
 
 /** U+17D2 has no standalone glyph, so a subscript is shown attached to a base. */
 const DOTTED_CIRCLE = '◌';
@@ -58,23 +66,29 @@ export function Analytics() {
     };
   }, [ready, sessionsSaved]);
 
-  if (error) {
-    return (
-      <p role="alert" className="text-error text-sm">
-        Could not load your statistics: {error}
-      </p>
-    );
-  }
-  if (!data) return null;
+  // The heading renders in every state, including "still connecting". This is
+  // its own page now, and returning null for the whole section left that page
+  // as a blank sheet with a footer until the worker answered.
+  const empty = !data || data.trend.length === 0;
 
-  const empty = data.trend.length === 0;
+  // Narrowed here rather than inline so the chart's points and its labels are
+  // guaranteed to come from the same rows.
+  const withWpm = (data?.trend ?? []).filter(
+    (t): t is TrendPoint & { wpm: number } => t.wpm !== null,
+  );
 
   return (
     <section className="space-y-6">
       <h2 className="text-sm font-medium">Your progress</h2>
 
-      {empty ? (
-        <p className="text-muted text-sm">
+      {error ? (
+        <p role="alert" className="card text-error p-4 text-sm">
+          Could not load your statistics: {error}
+        </p>
+      ) : !data ? (
+        <p className="card text-muted p-4 text-sm">Reading your local database…</p>
+      ) : empty ? (
+        <p className="card text-muted p-4 text-sm">
           Finish a test and your accuracy, weak clusters and hesitation keys show up here.
         </p>
       ) : (
@@ -88,11 +102,18 @@ export function Analytics() {
               format={(v) => `${Math.round(v)}%`}
               zeroBased
             />
+            {/*
+              Sessions saved before wpm was recorded are dropped from this
+              chart rather than plotted at zero or converted from their cpm:
+              cpm counts codepoints and wpm counts clusters, and no fixed ratio
+              turns one into the other. A missing point is honest; an invented
+              one would put a dip in the trend that never happened.
+            */}
             <Trend
-              title="CPM"
-              caption="correct keystrokes per minute"
-              points={data.trend.map((t) => t.cpm)}
-              labels={data.trend.map((t) => new Date(t.startedAt).toLocaleDateString())}
+              title="WPM"
+              caption={`${WORDS_CAPTION} · last 30 sessions`}
+              points={withWpm.map((t) => t.wpm)}
+              labels={withWpm.map((t) => new Date(t.startedAt).toLocaleDateString())}
               format={(v) => String(Math.round(v))}
               zeroBased
             />
@@ -174,7 +195,7 @@ function Trend({
   // costume, so show the number instead.
   if (points.length < 2) {
     return (
-      <figure className="border-border rounded-lg border p-4">
+      <figure className="card p-4">
         <figcaption className="text-muted text-xs">
           {title} <span className="opacity-70">· {caption}</span>
         </figcaption>
@@ -198,7 +219,7 @@ function Trend({
   const path = points.map((v, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
 
   return (
-    <figure className="border-border rounded-lg border p-4">
+    <figure className="card p-4">
       <figcaption className="text-muted text-xs">
         {title} <span className="opacity-70">· {caption}</span>
       </figcaption>
@@ -293,7 +314,7 @@ function Ranked({
 }) {
   if (rows.length === 0) {
     return (
-      <figure className="border-border rounded-lg border p-4">
+      <figure className="card p-4">
         <figcaption className="text-muted text-xs">
           {title} <span className="opacity-70">· {caption}</span>
         </figcaption>
@@ -305,7 +326,7 @@ function Ranked({
   const widest = Math.max(...rows.map((r) => r.bar)) || 1;
 
   return (
-    <figure className="border-border rounded-lg border p-4">
+    <figure className="card p-4">
       <figcaption className="text-muted text-xs">
         {title} <span className="opacity-70">· {caption}</span>
       </figcaption>

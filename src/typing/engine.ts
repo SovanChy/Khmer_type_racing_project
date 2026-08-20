@@ -103,54 +103,6 @@ function cellStatus(group: CharState[]): CellStatus {
   return 'pending';
 }
 
-export interface DetailCell {
-  /** The codepoint(s) this cell shows — a coeng and its consonant stay together. */
-  text: string;
-  status: CellStatus;
-}
-
-/**
- * The active cluster broken into the pieces a single cluster cell cannot
- * colour separately (R2: ្គ has to be paintable on its own).
- *
- * This does NOT split the text run the passage renders — it reads the same
- * `compare()` output `clusterView` does and regroups it for a second, separate
- * strip where each piece stands in its own element. Passage cells stay whole
- * because splitting a cluster's text run there stops the shaper stacking the
- * coeng subscript; this function only ever feeds a display that renders each
- * piece standalone, so that risk does not apply here.
- */
-export function activeClusterDetail(target: string, typed: string): DetailCell[] {
-  const states = compare(target, typed);
-  const typedLen = [...typed].length;
-  // Deliberately the cluster containing the NEXT codepoint to type
-  // (`states[typedLen]`) rather than a re-derivation of clusterView's own
-  // pending-or-partial caret. Those are the same cluster in the common case,
-  // but `cellStatus` folds "any incorrect codepoint" to 'incorrect' before it
-  // checks 'partial' -- so the instant a mid-cluster keystroke is wrong,
-  // clusterView's caret has ALREADY skipped past that cluster (it no longer
-  // reads as pending-or-partial), even though the word isn't finished. Basing
-  // the caret here on the *count* of codepoints actually typed instead keeps
-  // this strip on the cluster the user is still typing into -- which is
-  // exactly the cluster R2 needs to show a wrong subscript in.
-  const current = states[typedLen];
-  if (!current) return []; // word complete: nothing left to type
-
-  const group = states.filter((s) => s.cluster === current.cluster);
-  const cells: DetailCell[] = [];
-  for (let i = 0; i < group.length; i++) {
-    const state = group[i] as CharState;
-    const next = group[i + 1];
-    if (state.cp === COENG && next) {
-      cells.push({ text: state.cp + next.cp, status: cellStatus([state, next]) });
-      i++; // the paired codepoint is consumed, not a cell of its own
-    } else {
-      cells.push({ text: state.cp, status: cellStatus([state]) });
-    }
-  }
-  return cells;
-}
-
 /** Clusters typed completely and correctly — the basis for the WPM convention. */
 export function countCorrectClusters(target: string, typed: string): number {
   return clusterView(target, typed).cells.filter((c) => c.status === 'correct').length;
@@ -286,4 +238,25 @@ export function score({
     // than NaN and is what every other trainer shows at rest.
     accuracy: totalPresses > 0 ? correctPresses / totalPresses : 1,
   };
+}
+
+/**
+ * R5: why a finished run stopped, or null while it is still live.
+ *
+ * A timed run that stopped with the caret short of the end of its passage ran
+ * out of clock; anything else typed its way to the end. Derived from state
+ * that already exists rather than recorded when the timer fires — one less
+ * thing that can disagree with `phase`.
+ *
+ * `timed` is false for a word-count run and for a pasted quote, neither of
+ * which runs a countdown at all.
+ */
+export function endReason(
+  done: boolean,
+  timed: boolean,
+  caret: number,
+  totalCps: number,
+): 'time' | 'passage' | null {
+  if (!done) return null;
+  return timed && caret < totalCps ? 'time' : 'passage';
 }

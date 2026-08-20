@@ -15,6 +15,25 @@ export default defineConfig({
         // its worker/proxy scripts, the self-hosted Khmer font, and the corpus
         // JSON — all required for the app to work offline.
         globPatterns: ['**/*.{js,css,html,json,wasm,woff2,svg}'],
+        // R4: the dictionary is deliberately NOT precached. It is 5MB raw
+        // (~740KB brotli) and the app is fully usable without it, so making
+        // every first visit pay for it is exactly backwards. It is cached the
+        // first time a word is actually looked up — see the runtime rule below.
+        globIgnores: ['dict.json'],
+        runtimeCaching: [
+          {
+            urlPattern: ({ url }) => url.pathname.endsWith('/dict.json'),
+            // CacheFirst, not NetworkFirst: the file changes only when
+            // `npm run dict` is re-run, and a lookup must stay instant and work
+            // offline once the file has been fetched once.
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'khmer-dictionary',
+              expiration: { maxEntries: 1 },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
+        ],
       },
       manifest: {
         name: 'Khmer NiDA Typing Trainer',
@@ -22,8 +41,8 @@ export default defineConfig({
         start_url: '/',
         display: 'standalone',
         lang: 'km',
-        background_color: '#0f172a',
-        theme_color: '#0f172a',
+        background_color: '#0b1020',
+        theme_color: '#0b1020',
         icons: [
           {
             src: '/icon.svg',

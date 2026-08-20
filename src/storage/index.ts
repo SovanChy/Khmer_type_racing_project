@@ -53,17 +53,12 @@ const SETTINGS_KEY = 'knt.settings';
 // "Clear all my data" still deletes what older versions left behind.
 const OS_LAYOUT_KEY = 'knt.oslayout';
 
-
-/** Dark unless the machine explicitly asks for light — this is a focus tool. */
-function systemTheme(): Theme {
-  const prefersLight =
-    typeof matchMedia === 'function' && matchMedia('(prefers-color-scheme: light)').matches;
-  return prefersLight ? 'light' : 'dark';
-}
-
 export function defaultSettings(): Settings {
   // Remap is the default input mode because it needs nothing installed.
-  return { inputMode: 'remap', theme: systemTheme(), showKeyboard: true, quote: null };
+  // Dark, not the OS preference: this is a focus tool that people practise on
+  // for long stretches, and the light palette is the deliberate exception. The
+  // toggle still overrides this and still persists.
+  return { inputMode: 'remap', theme: 'dark', showKeyboard: true, quote: null };
 }
 
 export function loadSettings(): Settings {

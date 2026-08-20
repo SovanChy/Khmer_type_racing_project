@@ -31,8 +31,8 @@ let db: DB;
 const rows = (sql: string, bind: unknown[] = []): Record<string, unknown>[] =>
   db.exec({ sql, bind, rowMode: 'object', returnValue: 'resultRows' });
 
-const addSession = (startedAt: number, mode = 'time:30', cpm = 200, accuracy = 0.9) =>
-  rows(INSERT_SESSION, [startedAt, mode, 30_000, cpm, accuracy])[0]?.id as number;
+const addSession = (startedAt: number, mode = 'time:30', cpm = 200, accuracy = 0.9, wpm = 20) =>
+  rows(INSERT_SESSION, [startedAt, mode, 30_000, cpm, wpm, accuracy])[0]?.id as number;
 
 beforeEach(() => {
   db?.close();
@@ -104,13 +104,14 @@ describe('sessions', () => {
   });
 
   it('names its columns as the app reads them, not as the table spells them', () => {
-    addSession(1_234, 'time:30', 250, 0.95);
+    addSession(1_234, 'time:30', 250, 0.95, 24);
     expect(rows(RECENT_SESSIONS, [1])[0]).toEqual({
       id: 1,
       startedAt: 1_234,
       mode: 'time:30',
       durationMs: 30_000,
       cpm: 250,
+      wpm: 24,
       accuracy: 0.95,
     });
   });
@@ -187,7 +188,13 @@ describe('upgrading a database that already holds data', () => {
     legacy = new sqlite3.oo1.DB(':memory:');
     legacy.exec(PRAGMAS);
     legacy.exec(MIGRATIONS[0]!);
-    legacy.exec({ sql: INSERT_SESSION, bind: [1_000, 'time:30', 30_000, 210, 0.88] });
+    // Written with the v1 statement, not the current one: INSERT_SESSION now
+    // names a wpm column that this database has not been migrated to have.
+    legacy.exec({
+      sql: `INSERT INTO sessions (started_at, mode, duration, cpm, accuracy)
+            VALUES (?, ?, ?, ?, ?)`,
+      bind: [1_000, 'time:30', 30_000, 210, 0.88],
+    });
     legacy.exec({
       sql: `INSERT INTO keystrokes
               (session_id, target_codepoint, typed_codepoint, correct, ms_since_prev)
@@ -209,11 +216,14 @@ describe('upgrading a database that already holds data', () => {
     runMigrations(legacy);
 
     const [session] = legacy.exec({
-      sql: 'SELECT cpm FROM sessions',
+      sql: 'SELECT cpm, wpm FROM sessions',
       rowMode: 'object',
       returnValue: 'resultRows',
     });
     expect(session?.cpm).toBe(210);
+    // NULL, not a figure derived from cpm: a run's wpm counts clusters and its
+    // cpm counts codepoints, so there is nothing to back-fill it from.
+    expect(session?.wpm).toBe(null);
 
     const [key] = legacy.exec({
       sql: 'SELECT target_codepoint AS cp, target_cluster AS cluster, subscript FROM keystrokes',
@@ -282,6 +292,7 @@ describe('parseExport', () => {
         mode: 'time:30',
         durationMs: 30_000,
         cpm: 210,
+        wpm: 21,
         accuracy: 0.9,
         keystrokes: [
           {
@@ -391,5 +402,42 @@ describe('parseExport', () => {
       () => keystroke,
     );
     expect(() => parseExport(payload)).toThrow(/more than .* keystrokes/);
+  });
+});
+
+describe('wpm on exports', () => {
+  /** An export as written before the wpm column existed. */
+  const legacy = () => ({
+    format: EXPORT_FORMAT,
+    version: EXPORT_VERSION,
+    exportedAt: 1_700_000_000_000,
+    sessions: [
+      {
+        startedAt: 1_000,
+        mode: 'time:30',
+        durationMs: 30_000,
+        cpm: 210,
+        accuracy: 0.9,
+        keystrokes: [],
+      } as Record<string, unknown>,
+    ],
+  });
+
+  it('accepts an export written before wpm existed', () => {
+    // Backups people already hold must keep importing, and the session comes
+    // back with wpm null rather than a number invented from its cpm.
+    expect(parseExport(legacy()).sessions[0]?.wpm).toBe(null);
+  });
+
+  it('keeps a wpm that is there', () => {
+    const payload = legacy();
+    payload.sessions[0]!.wpm = 42;
+    expect(parseExport(payload).sessions[0]?.wpm).toBe(42);
+  });
+
+  it('rejects a wpm that is present but not a number', () => {
+    const payload = legacy();
+    payload.sessions[0]!.wpm = 'fast';
+    expect(() => parseExport(payload)).toThrow(/wpm/);
   });
 });
