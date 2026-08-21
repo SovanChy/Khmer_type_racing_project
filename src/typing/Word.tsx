@@ -34,8 +34,22 @@ export const CELL_CLASS: Record<CellStatus, string> = {
  */
 function Caret() {
   return (
-    <span aria-hidden className="relative inline-block w-0 align-baseline">
-      <span className="bg-caret motion-safe:animate-pulse absolute -top-[0.15em] -left-px h-[1.15em] w-0.5 rounded-full" />
+    // `inline`, never `inline-block`. An atomic inline is a U+FFFC in the
+    // line's text run: it splits the shaping run and gives the line breaker a
+    // break opportunity in the middle of the word. That opportunity travelled
+    // with the caret, so typing through the last word on a line made its tail
+    // hop to the next line and back, keystroke by keystroke. An empty inline
+    // box adds no character and can do neither.
+    //
+    // The cost is the reference frame. An inline box's top edge is the font's
+    // ascent above the baseline (1.069em in Noto Sans Khmer), not the baseline
+    // itself, so the bar is placed from there: 1.069 - 0.9 = 0.169em puts its
+    // top 0.9em over the baseline, clear of the tallest vowel sign (0.88em),
+    // and 1.15em of height carries it to 0.25em under, into the coeng zone
+    // (which reaches -0.54em). Both numbers are measured off the bundled font
+    // — re-measure them before swapping it.
+    <span aria-hidden className="relative inline">
+      <span className="bg-caret motion-safe:animate-pulse absolute top-[0.169em] -left-px h-[1.15em] w-0.5 rounded-full" />
     </span>
   );
 }

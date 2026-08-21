@@ -393,6 +393,22 @@ export function TypingTest() {
 
   const currentWordProps = wordProps(words, typed.current, caret);
 
+  // What the TypeRacer-style field shows. A finished word hands "active" to
+  // the next one with no keystroke (see `activeWordIndex`), so reading the
+  // active word alone blanks the field the instant the last cluster lands —
+  // the word vanishes while the user is still looking at it. An empty active
+  // word therefore falls back to the one just finished, which keeps it on
+  // screen until the first keypress of the next word replaces it.
+  const activeIndex = currentWordProps.findIndex((w) => w.status === 'active');
+  const shownWord = currentWordProps[activeIndex]?.typed
+    ? currentWordProps[activeIndex]
+    : (currentWordProps[activeIndex - 1] ?? currentWordProps[activeIndex]);
+  const typedWord = shownWord?.typed ?? '';
+  // Prefix comparison, matching the engine: codepoints are compared
+  // positionally and never realigned, so anything that is not still a prefix
+  // of the target is wrong and stays wrong until it is deleted.
+  const typedWrong = shownWord !== undefined && !shownWord.target.startsWith(typedWord);
+
   // R5: why the run stopped. Derived, not stored — see `endReason`.
   const ended = endReason(
     phase === 'done',
@@ -476,6 +492,10 @@ export function TypingTest() {
         ended={ended}
         onBlur={handleInputBlur}
         onFocus={handleInputFocus}
+        // The word being written, shown in the field the way TypeRacer does.
+        // Free: `wordProps` already sliced the buffer per word for the passage.
+        typed={typedWord}
+        wrong={typedWrong}
       >
         {/*
           A fixed three-line window, not the whole passage. A 150-word timed
@@ -488,6 +508,15 @@ export function TypingTest() {
           The height is in `em` so it tracks the responsive font size, and the
           multiplier is the `leading` value: 3 lines exactly, whatever the
           breakpoint. Changing one without the other silently clips a line.
+
+          `scroll-pb` is what keeps coeng stacks whole. `scrollIntoView` aligns
+          the active <span>'s INLINE box -- baseline plus the font's 0.293em
+          descent -- with the window's bottom edge, but shaped Khmer ink runs
+          to 0.54em below the baseline (កម្ពុជា), so a scrolled line lost the
+          bottom of every subscript. The padding is the font's half-leading at
+          this line height ((2.2 - 1.362) / 2 = 0.419em), which parks the whole
+          line BOX inside the window instead of the inline box. Enough slack to
+          clear the ink, too little to expose the ink of the line above.
         */}
         {/*
           Dimmed once the run is over: the passage is the thing being stared
@@ -504,7 +533,7 @@ export function TypingTest() {
           // words by attribute. Deliberately not a prop on <Word>: a hover
           // prop would change identity per word and defeat the memo the
           // passage depends on. This costs zero re-renders.
-          className={`font-khmer h-[6.6em] overflow-hidden text-2xl leading-[2.2] sm:text-3xl [&_[data-word]]:cursor-pointer [&_[data-word]:hover]:bg-caret/10 [&_[data-word]:hover]:rounded-sm ${
+          className={`font-khmer h-[6.6em] scroll-pb-[0.42em] overflow-hidden text-2xl leading-[2.2] sm:text-3xl [&_[data-word]]:cursor-pointer [&_[data-word]:hover]:bg-caret/10 [&_[data-word]:hover]:rounded-sm ${
             ended ? 'opacity-50' : ''
           }`}
           lang="km"

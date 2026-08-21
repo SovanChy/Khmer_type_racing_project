@@ -17,6 +17,14 @@ interface Props {
   onBlur?: () => void;
   /** Fires after the input regains focus — the caller uses this to resume. */
   onFocus?: () => void;
+  /**
+   * What the user has typed towards the active word, TypeRacer-style: their
+   * own codepoints, typos included, not the target's. Display only — the
+   * buffer still lives in the caller.
+   */
+  typed?: string;
+  /** True while `typed` has stopped being a prefix of the word it is aimed at. */
+  wrong?: boolean;
   children?: ReactNode;
 }
 
@@ -24,8 +32,11 @@ interface Props {
  * The typing surface: a real, visible, click-to-focus `<input>`.
  *
  * Not `contentEditable` — we need raw key events to run the remap, and a real
- * input is what raises the soft keyboard on mobile. The element stays empty;
- * the typed buffer is owned by the caller, never by the DOM.
+ * input is what raises the soft keyboard on mobile. The buffer is owned by the
+ * caller, never by the DOM: the field is controlled off `typed`, so every key
+ * we consume is `preventDefault`ed and the value only ever changes because the
+ * engine said so. Anything that slips through gets overwritten on the next
+ * render.
  *
  * Deliberately never autofocused: capture must start only when the user
  * clicks or tabs into it, and the field must be visible so they can see when
@@ -37,6 +48,8 @@ export function KeyboardInput({
   ended = null,
   onBlur,
   onFocus,
+  typed = '',
+  wrong = false,
   children,
 }: Props) {
   const inputMode = useStore((s) => s.inputMode);
@@ -57,8 +70,6 @@ export function KeyboardInput({
     if (action.type !== 'ignore') e.preventDefault();
 
     onAction(action);
-    // Anything we let through would otherwise accumulate in the element.
-    e.currentTarget.value = '';
   }
 
   return (
@@ -81,6 +92,11 @@ export function KeyboardInput({
 
       <input
         ref={input}
+        value={typed}
+        // Controlled with nothing to update: the value comes from the engine,
+        // so a key we did not consume must not stick. React restores the
+        // prop's value after this fires, which is the whole point of having it.
+        onChange={() => {}}
         onKeyDown={handleKeyDown}
         onFocus={() => {
           setFocused(true);
@@ -99,8 +115,17 @@ export function KeyboardInput({
         // this stops 1Password/LastPass from injecting an overlay into it.
         data-1p-ignore
         data-lpignore="true"
-        className={`mt-4 block h-14 w-full rounded-md border px-4 text-fg outline-none transition-colors ${
-          focused ? 'border-caret' : 'border-border'
+        // `font-khmer`: this now renders Khmer, and the bundled font is the
+        // only one allowed to draw a coeng stack. Sized like the passage so
+        // the word reads the same in both places.
+        // The wrong-state tint outranks focus: a red field is the more urgent
+        // thing to say, and the two borders cannot both be shown. Not the only
+        // cue — the passage underlines the same mistake — so this stays
+        // readable without colour.
+        className={`font-khmer mt-4 block h-14 w-full rounded-md border px-4 text-2xl outline-none transition-colors ${
+          wrong
+            ? 'border-error bg-error/10 text-error'
+            : `text-fg ${focused ? 'border-caret' : 'border-border'}`
         }`}
       />
 
